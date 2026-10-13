@@ -9,7 +9,7 @@ test("declares a valid on-demand Omarchy overlay entry point", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"))
 
   assert.equal(manifest.schemaVersion, 1)
-  assert.equal(manifest.id, "sgruendel.fzf")
+  assert.equal(manifest.id, "soufian.open-file")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.equal(manifest.entryPoints.overlay, "Fzf.qml")
   assert.equal(manifest.keepLoaded, undefined)
@@ -24,7 +24,7 @@ test("implements the Omarchy overlay lifecycle and scoped host injection", () =>
   assert.match(qml, /^\s*property bool opened: false$/m)
   assert.match(qml, /^\s*function open\(payloadJson\) \{$/m)
   assert.match(qml, /^\s*function close\(\) \{$/m)
-  assert.match(qml, /root\.shell\.hide\(\(root\.manifest && root\.manifest\.id\) \|\| "sgruendel\.fzf"\)/)
+  assert.match(qml, /root\.shell\.hide\(\(root\.manifest && root\.manifest\.id\) \|\| "soufian\.open-file"\)/)
   assert.doesNotMatch(qml, /\bFileView\s*\{/)
   assert.match(qml, /maxSearchOutputBytes:\s*262144/)
 })

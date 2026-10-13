@@ -17,7 +17,7 @@ function resultPaths(stdout) {
 }
 
 test("returns path-ranked, NUL-delimited results independently of user fzf options", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-search-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-search-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   fs.writeFileSync(path.join(directory, "alpha report.txt"), "")
   fs.writeFileSync(path.join(directory, "alpha\nnotes.txt"), "")
@@ -31,7 +31,7 @@ test("returns path-ranked, NUL-delimited results independently of user fzf optio
 })
 
 test("limits result count", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-search-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-search-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   for (let index = 0; index < 5; index++) {
     fs.writeFileSync(path.join(directory, `match-${index}.txt`), "")
@@ -44,7 +44,7 @@ test("limits result count", t => {
 })
 
 test("limits output bytes without emitting a partial path", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-search-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-search-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   for (let index = 0; index < 10; index++) {
     fs.writeFileSync(path.join(directory, `bounded-match-${index}.txt`), "")
@@ -59,7 +59,7 @@ test("limits output bytes without emitting a partial path", t => {
 })
 
 test("treats no matches as a successful empty result", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-search-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-search-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   fs.writeFileSync(path.join(directory, "alpha.txt"), "")
 

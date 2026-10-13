@@ -12,7 +12,7 @@ function run(command) {
 }
 
 test("reads only regular files within the byte limit", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-file-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-io-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   const file = path.join(directory, "state.json")
   fs.writeFileSync(file, "small state\n")
@@ -29,7 +29,7 @@ test("reads only regular files within the byte limit", t => {
 })
 
 test("atomically writes bounded private state and reports rejected writes", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-file-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-io-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   const file = path.join(directory, "state.json")
 
@@ -44,7 +44,7 @@ test("atomically writes bounded private state and reports rejected writes", t =>
 })
 
 test("atomic writes replace the state path instead of following a symlink", t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-file-"))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-io-"))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   const external = path.join(directory, "external")
   const state = path.join(directory, "state.json")
@@ -60,7 +60,7 @@ test("atomic writes replace the state path instead of following a symlink", t =>
 })
 
 test("prepares a private state directory but rejects a directory symlink", t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-file-"))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-io-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const directory = path.join(root, "state")
 

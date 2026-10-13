@@ -39,7 +39,7 @@ Item {
   readonly property int maxSearchErrorChars: 8192
 
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
-  readonly property string stateDir: stateHome + "/sgruendel.fzf"
+  readonly property string stateDir: stateHome + "/soufian.open-file"
   readonly property string statePath: stateDir + "/state.json"
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"
   readonly property string userDirsPath: configHome + "/user-dirs.dirs"
@@ -97,7 +97,7 @@ Item {
 
   function dismiss() {
     if (root.shell && typeof root.shell.hide === "function")
-      root.shell.hide((root.manifest && root.manifest.id) || "sgruendel.fzf")
+      root.shell.hide((root.manifest && root.manifest.id) || "soufian.open-file")
     else
       root.close()
   }
@@ -314,7 +314,7 @@ Item {
       if (exitCode === 0) root.loadLastField(lastFieldReadStdout.text)
       else {
         if (exitCode === 65)
-          console.warn("sgruendel.fzf: state file exceeds byte limit", root.statePath)
+          console.warn("soufian.open-file: state file exceeds byte limit", root.statePath)
         root.loadLastField("")
       }
     }
@@ -329,7 +329,7 @@ Item {
         root.stateDirReady = true
         root.flushLastFieldState()
       } else {
-        console.warn("sgruendel.fzf: could not create state directory", root.stateDir)
+        console.warn("soufian.open-file: could not create state directory", root.stateDir)
       }
     }
   }
@@ -340,7 +340,7 @@ Item {
     running: false
     onExited: function(exitCode) {
       if (exitCode !== 0) {
-        console.warn("sgruendel.fzf: state write failed with exit", exitCode)
+        console.warn("soufian.open-file: state write failed with exit", exitCode)
         // Let a later focus retry the same path without immediately spinning.
         root.lastFieldPath = ""
       }
@@ -382,7 +382,7 @@ Item {
     visible: root.opened
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
-    WlrLayershell.namespace: "sgruendel-fzf"
+    WlrLayershell.namespace: "soufian-open-file"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore

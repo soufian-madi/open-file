@@ -1,49 +1,46 @@
-# fzf for Omarchy
+# open-file
 
 A Quickshell overlay for [Omarchy](https://omarchy.org/) that fuzzy-finds
-files in your XDG user directories and opens them.
+files and folders anywhere in your home directory and opens them.
 
-The overlay reads
-`${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs` and shows one search field
-per configured directory (Downloads, Documents, Music, Pictures, …). Entries
-that point at your home directory itself are skipped, since searching there
-would dwarf every other directory.
+> **Based on** [sgruendel/omarchy-fzf](https://github.com/sgruendel/omarchy-fzf)
+> by Stefan Gründel. That plugin searches the XDG user directories; this fork
+> searches the whole home directory, completes folder paths with `Tab`, and
+> opens files through their MIME association (Neovim handlers run in a foot
+> terminal).
 
-As soon as you type into a field, the other fields disappear and matching
-files from that directory appear below, ranked by fzf. The field stays
-visible so you can keep refining the search. Selecting an entry opens the
-file with `xdg-open`. The most recently focused directory is restored the
-next time the overlay opens; search queries are not saved.
+## What it does
 
-## Screenshots
+The overlay shows a single **Home** field. As soon as you type, matching files
+and folders from your home directory appear below, ranked by fzf. Hidden
+entries are included, but noisy directories are excluded (`.git`, `.cache`,
+`node_modules`, `.npm`, `.steam`, `.gradle`, `.cua-driver`, Steam data, and the
+Trash). Selecting an entry opens it with its default application.
 
-Choose an XDG user directory to search:
-
-![Initial fzf overlay with one search field per XDG user directory](screenshots/initial.png)
-
-Review fuzzy-ranked file results without leaving the keyboard:
-
-![fzf overlay showing fuzzy-ranked files and keyboard shortcuts](preview.png)
+`Tab` completes the best fuzzy-matching immediate child folder — `adult` finds
+`Adulting/` — and keeps completing subfolders as you go. A completed folder
+prefix narrows the search to that folder while results keep showing
+home-relative paths.
 
 ## Requirements
 
 - Omarchy 4.0.4+ with the Quickshell plugin API
 - [`fzf`](https://github.com/junegunn/fzf)
 - [`fd`](https://github.com/sharkdp/fd)
-- `xdg-open`
+- `xdg-open` and `xdg-mime` (`xdg-utils`)
 
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/sgruendel/omarchy-fzf.git --enable
+omarchy plugin add https://github.com/soufian-madi/open-file.git --enable
 ```
 
 ## Remove
 
 ```bash
-omarchy plugin remove sgruendel.fzf --yes
-rm -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf/state.json"
-rmdir -- "${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf" 2>/dev/null || true
+omarchy plugin remove soufian.open-file --yes
+rm -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/soufian.open-file/state.json"
+rmdir -- "${XDG_STATE_HOME:-$HOME/.local/state}/soufian.open-file" 2>/dev/null || true
 ```
 
 ## Usage
@@ -51,29 +48,36 @@ rmdir -- "${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf" 2>/dev/null || tr
 Summon the overlay through the shell:
 
 ```bash
-omarchy-shell shell toggle sgruendel.fzf
+omarchy-shell shell toggle soufian.open-file
 ```
 
 To bind it to a key, add a line like this to `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("XF86Search", nil, "omarchy-shell shell toggle sgruendel.fzf")
+o.bind("SUPER + ALT + X", "File search", "omarchy-shell shell toggle soufian.open-file")
 ```
 
 ## Controls
 
-- Type in a field: fuzzy-search that directory
-- `Tab` / `Shift+Tab`: move between directory fields
+- Type: fuzzy-search files and folders across your home directory
+- `Tab`: complete the current folder path
 - `Up` / `Down` or `Ctrl+K` / `Ctrl+J`: move the result selection
 - `PageUp` / `PageDown` or `Ctrl+U` / `Ctrl+D`: move by ten results
-- `Enter`: open the selected file with `xdg-open`
+- `Enter`: open the selected entry with its default application
 - `Escape`: clear the current search, or close the overlay when empty
 - Click a result to open it; click outside the card to close the overlay
 
+## Opening files
+
+Files open through their MIME association (`xdg-mime query filetype` /
+`query default`). Handlers mapped to `nvim.desktop` or `neovim.desktop` launch
+`foot nvim -- <path>`, since `xdg-open` does not reliably start `Terminal=true`
+handlers in this session. Everything else opens with `xdg-open`.
+
 ## State
 
-The last focused directory path is stored in
-`${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf/state.json`.
+The last focused field is stored in
+`${XDG_STATE_HOME:-$HOME/.local/state}/soufian.open-file/state.json`.
 The state file is limited to 8 KiB and written atomically with mode `0600`
 inside a mode `0700` plugin directory. No search query or result history is
 persisted.
@@ -81,11 +85,17 @@ persisted.
 ## How it works
 
 Each keystroke is debounced (150 ms) and runs
-`fd --type f --hidden --exclude .git | fzf --scheme=path --filter=<query>`
-inside the directory, so results use fzf's path-oriented ranking. Hidden
-files are included except `.git`; fd also respects your `.gitignore`. Input
-files and search output are byte-limited before entering QML collectors; the
-UI additionally caps directory entries, path lengths, and result count.
+
+```bash
+fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache … | fzf --scheme=path --filter=<query>
+```
+
+in the home directory, so results use fzf's path-oriented ranking. Hidden
+entries are included and VCS ignore rules are disabled, minus the excluded
+directories listed above. User fzf options are cleared so they cannot change
+the output protocol. Input files and search output are byte-limited before
+entering QML collectors; the UI additionally caps directory entries, path
+lengths, and result count.
 
 ## Development
 
@@ -94,7 +104,7 @@ scoped `shell` and public `manifest` facades, calls `open(payloadJson)` when the
 overlay is summoned, and calls `close()` when it is hidden. The overlay is
 loaded on demand and reports its state through `opened`.
 
-Run the parser and search-pipeline tests with:
+Run the parser, search-pipeline, and completion tests with:
 
 ```bash
 node --test
@@ -102,4 +112,5 @@ node --test
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — the license keeps the original copyright notice of
+[sgruendel/omarchy-fzf](https://github.com/sgruendel/omarchy-fzf).

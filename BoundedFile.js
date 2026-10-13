@@ -21,7 +21,7 @@ var writeScript =
   "directory=${target%/*}\n" +
   "[[ -n $directory && -d $directory && ! -L $directory ]] || exit 66\n" +
   "umask 077\n" +
-  "temporary=$(mktemp --tmpdir=\"$directory\" .sgruendel-fzf-state.XXXXXX) || exit 73\n" +
+  "temporary=$(mktemp --tmpdir=\"$directory\" .soufian-open-file-state.XXXXXX) || exit 73\n" +
   "trap 'rm -f -- \"$temporary\"' EXIT\n" +
   "chmod 600 -- \"$temporary\" || exit 73\n" +
   "printf '%s' \"$payload\" > \"$temporary\" || exit 74\n" +
