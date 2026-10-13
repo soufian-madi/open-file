@@ -7,6 +7,7 @@ var searchScript =
   "emit_bounded_results() {\n" +
   "  local max_results=$1 max_bytes=$2 count=0 total=0 result size\n" +
   "  while IFS= read -r -d '' result; do\n" +
+  "    result=\"$3$result\"\n" +
   "    size=${#result}\n" +
   "    if (( count >= max_results || total + size + 1 > max_bytes )); then break; fi\n" +
   "    printf '%s\\0' \"$result\"\n" +
@@ -30,25 +31,40 @@ var searchScript =
   "  printf 'Required command not found: fzf\\n' >&2\n" +
   "  exit 127\n" +
   "fi\n" +
-  "fd --type f --hidden --exclude .git --print0 --strip-cwd-prefix | " +
+  "fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache --exclude node_modules --exclude .npm --exclude .steam --exclude .gradle --exclude .cua-driver --exclude .local/share/Steam --exclude .local/share/Trash --print0 --strip-cwd-prefix | " +
     "env FZF_DEFAULT_OPTS= FZF_DEFAULT_OPTS_FILE= " +
     "fzf --scheme=path --read0 --print0 --filter=\"$1\" | " +
-    "emit_bounded_results \"$3\" \"$4\"\n" +
+     "emit_bounded_results \"$3\" \"$4\" \"$5\"\n" +
   "statuses=(\"${PIPESTATUS[@]}\")\n" +
   "if (( statuses[0] != 0 && statuses[0] != 141 )); then exit \"${statuses[0]}\"; fi\n" +
   "if (( statuses[1] != 0 && statuses[1] != 1 && statuses[1] != 141 )); then exit \"${statuses[1]}\"; fi\n" +
   "exit \"${statuses[2]}\""
 
-function command(query, directory, maxResults, maxOutputBytes) {
+function scope(query) {
+  var text = String(query)
+  var slash = text.lastIndexOf("/")
+  var prefix = slash >= 0 ? text.slice(0, slash + 1) : ""
+  // Only relative paths below the home root can become a search scope.
+  if (prefix.charAt(0) === "/" || prefix.split("/").some(function(part) { return part === ".." || part === "." }))
+    return { prefix: "", query: text }
+  return { prefix: prefix, query: text.slice(prefix.length) }
+}
+
+function command(query, directory, maxResults, maxOutputBytes, completion) {
+  var scoped = scope(query)
+  var script = completion
+    ? searchScript.replace("fd --type f --type d", "fd --max-depth 1 --type d")
+    : searchScript
   return [
-    "bash", "-c", searchScript, "bash", String(query), String(directory),
-    String(maxResults), String(maxOutputBytes)
+    "bash", "-c", script, "bash", scoped.query, String(directory) + "/" + scoped.prefix,
+    String(maxResults), String(maxOutputBytes), scoped.prefix
   ]
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
     searchScript: searchScript,
-    command: command
+    command: command,
+    scope: scope
   }
 }

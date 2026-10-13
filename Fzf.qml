@@ -7,6 +7,7 @@ import qs.Ui
 import "BoundedFile.js" as BoundedFile
 import "LastFieldState.js" as LastFieldState
 import "SearchCommand.js" as SearchCommand
+import "OpenCommand.js" as OpenCommand
 import "UserDirs.js" as UserDirs
 
 Item {
@@ -63,11 +64,12 @@ Item {
   property int maxResults: 200
 
   Component.onCompleted: {
-    userDirsProc.running = true
+    root.loadHome()
     lastFieldReadProc.running = true
   }
 
   function resetSearch(clearActive) {
+    if (completionProc.running) completionProc.running = false
     debounce.stop()
     root.searchGen++
     if (searchProc.running) searchProc.running = false
@@ -112,6 +114,14 @@ Item {
     root.dirs = parsed
     root.dirsLoaded = true
     root.dirsError = parsed.length === 0 ? "No searchable XDG user directories found" : ""
+    root.focusPreferredField()
+  }
+
+  function loadHome() {
+    var home = Quickshell.env("HOME")
+    root.dirs = [{ name: "Home", path: home }]
+    root.dirsLoaded = true
+    root.dirsError = ""
     root.focusPreferredField()
   }
 
@@ -165,6 +175,7 @@ Item {
   }
 
   function onQueryChanged(index, text) {
+    if (completionProc.running) completionProc.running = false
     if (text === "") {
       if (root.activeIndex === index) root.resetSearch(true)
       return
@@ -258,7 +269,27 @@ Item {
     if (index < 0 || index >= resultModel.count) return
     var fullPath = root.dirs[root.activeIndex].path + "/" + resultModel.get(index).path
     root.dismiss()
-    Quickshell.execDetached(["xdg-open", fullPath])
+    Quickshell.execDetached(OpenCommand.command(fullPath))
+  }
+
+  function completeDirectory() {
+    var field = fieldsRepeater.itemAt(0)
+    if (!field || completionProc.running) return
+    completionProc.query = field.text
+    completionProc.exec(SearchCommand.command(
+      field.text, root.dirs[0].path, 1, root.maxSearchOutputBytes, true))
+  }
+
+  Process {
+    id: completionProc
+    property string query: ""
+    stdout: StdioCollector { id: completionOutput; waitForEnd: true }
+    onExited: function(exitCode) {
+      var field = fieldsRepeater.itemAt(0)
+      if (exitCode !== 0 || !root.opened || !field || field.text !== query) return
+      var path = completionOutput.text.split("\0")[0]
+      if (path !== "") field.completeText(path.replace(/\/$/, "") + "/")
+    }
   }
 
   ListModel { id: resultModel }
@@ -406,6 +437,11 @@ Item {
 
               function clearText() { input.text = "" }
               function focusInput() { input.forceActiveFocus() }
+              function completeText(value) {
+                input.text = value
+                input.cursorPosition = value.length
+                input.forceActiveFocus()
+              }
 
               visible: root.activeIndex === -1 || root.activeIndex === index
               width: parent.width
@@ -467,11 +503,8 @@ Item {
                   } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                     root.activateIndex(root.selectedIndex)
                     event.accepted = true
-                  } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                    var step = (event.key === Qt.Key_Backtab) ? -1 : 1
-                    var next = (fieldRow.index + step + fieldsRepeater.count) % fieldsRepeater.count
-                    var field = fieldsRepeater.itemAt(next)
-                    if (field) field.focusInput()
+                   } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                    root.completeDirectory()
                     event.accepted = true
                   }
                 }
@@ -600,13 +633,14 @@ Item {
             Repeater {
               model: root.activeIndex === -1
                 ? [
-                    { keys: "Tab ⇧Tab", action: "Directory" },
+                    { keys: "Tab", action: "Complete folder" },
                     { keys: "Esc", action: "Close" }
                   ]
                 : [
-                    { keys: "↑ ↓  C-j C-k", action: "Navigate" },
-                    { keys: "PgUp PgDn  C-u C-d", action: "Page" },
+                    { keys: "↑ ↓", action: "Navigate" },
+                    { keys: "PgUp PgDn", action: "Page" },
                     { keys: "Enter", action: "Open" },
+                    { keys: "Tab", action: "Complete folder" },
                     { keys: "Esc", action: "Clear" }
                   ]
 
