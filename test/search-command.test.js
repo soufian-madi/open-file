@@ -17,30 +17,15 @@ function makeHome(t) {
   return home
 }
 
-function makeCache(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-cache-"))
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
-  return path.join(directory, "index")
-}
-
-function buildIndex(t, directory, cachePath, maxIndexBytes = 4 * 1024 * 1024) {
-  const result = run(SearchCommand.indexCommand(directory, cachePath, maxIndexBytes))
-  assert.equal(result.status, 0, result.stderr.toString())
-}
-
-function indexedPaths(cachePath) {
-  return fs.readFileSync(cachePath, "utf8").split("\0").filter(Boolean)
-}
-
-function search(query, cachePath, maxResults = 200, env = process.env, maxOutputBytes = 256 * 1024) {
-  return run(SearchCommand.searchCommand(query, cachePath, maxResults, maxOutputBytes), env)
+function search(query, home, maxResults = 200, env = process.env, maxOutputBytes = 256 * 1024) {
+  return run(SearchCommand.searchCommand(query, home, maxResults, maxOutputBytes), env)
 }
 
 function resultPaths(stdout) {
   return stdout.toString("utf8").split("\0").filter(Boolean)
 }
 
-test("indexes files and folders with hidden entries but without excluded directories", t => {
+test("searches files and folders with hidden entries but without excluded directories", t => {
   const home = makeHome(t)
   fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
   fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
@@ -51,12 +36,9 @@ test("indexes files and folders with hidden entries but without excluded directo
   fs.writeFileSync(path.join(home, ".git", "objects", "pack"), "")
   fs.mkdirSync(path.join(home, ".cache", "fontconfig"), { recursive: true })
   fs.writeFileSync(path.join(home, ".cache", "fontconfig", "cache"), "")
-  const cachePath = makeCache(t)
-
-  buildIndex(t, home, cachePath)
-
-  const entries = indexedPaths(cachePath)
-  assert.equal(fs.statSync(cachePath).mode & 0o777, 0o600)
+  const result = search("", home)
+  assert.equal(result.status, 0, result.stderr.toString())
+  const entries = resultPaths(result.stdout)
   assert.ok(entries.includes("Adulting/"))
   assert.ok(entries.includes("Adulting/Tax papers/"))
   assert.ok(entries.includes("Adulting/Tax papers/report.md"))
@@ -68,16 +50,13 @@ test("indexes files and folders with hidden entries but without excluded directo
   }
 })
 
-test("filters the index and prepends completed scopes to results", t => {
+test("searches completed scopes and prepends them to results", t => {
   const home = makeHome(t)
   fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
   fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
   fs.writeFileSync(path.join(home, "Adulting", "notes.md"), "")
   fs.writeFileSync(path.join(home, "outside-report.md"), "")
-  const cachePath = makeCache(t)
-  buildIndex(t, path.join(home, "Adulting"), cachePath)
-
-  const result = search("Adulting/rep", cachePath)
+  const result = search("Adulting/rep", home)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.deepEqual(resultPaths(result.stdout), ["Adulting/Tax papers/report.md"])
@@ -88,10 +67,7 @@ test("lists the whole scope for an empty remainder query", t => {
   fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
   fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
   fs.writeFileSync(path.join(home, "Adulting", "notes.md"), "")
-  const cachePath = makeCache(t)
-  buildIndex(t, path.join(home, "Adulting"), cachePath)
-
-  const result = search("Adulting/", cachePath)
+  const result = search("Adulting/", home)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.deepEqual(new Set(resultPaths(result.stdout)), new Set([
@@ -104,11 +80,8 @@ test("returns NUL-delimited results independently of user fzf options", t => {
   fs.writeFileSync(path.join(home, "alpha report.txt"), "")
   fs.writeFileSync(path.join(home, "alpha\nnotes.txt"), "")
   fs.writeFileSync(path.join(home, "beta.txt"), "")
-  const cachePath = makeCache(t)
-  buildIndex(t, home, cachePath)
-
   const env = { ...process.env, FZF_DEFAULT_OPTS: "--print-query", FZF_DEFAULT_OPTS_FILE: "/missing" }
-  const result = search("alpha", cachePath, 10, env)
+  const result = search("alpha", home, 10, env)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.deepEqual(new Set(resultPaths(result.stdout)), new Set(["alpha report.txt", "alpha\nnotes.txt"]))
@@ -119,10 +92,7 @@ test("limits result count", t => {
   for (let index = 0; index < 5; index++) {
     fs.writeFileSync(path.join(home, `match-${index}.txt`), "")
   }
-  const cachePath = makeCache(t)
-  buildIndex(t, home, cachePath)
-
-  const result = search("match", cachePath, 2)
+  const result = search("match", home, 2)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.equal(resultPaths(result.stdout).length, 2)
@@ -133,10 +103,7 @@ test("limits output bytes without emitting a partial path", t => {
   for (let index = 0; index < 10; index++) {
     fs.writeFileSync(path.join(home, `bounded-match-${index}.txt`), "")
   }
-  const cachePath = makeCache(t)
-  buildIndex(t, home, cachePath)
-
-  const result = search("bounded", cachePath, 100, process.env, 45)
+  const result = search("bounded", home, 100, process.env, 45)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.ok(result.stdout.length <= 45)
@@ -144,67 +111,17 @@ test("limits output bytes without emitting a partial path", t => {
   assert.ok(resultPaths(result.stdout).length < 10)
 })
 
-test("caps the index byte size without emitting a partial path", t => {
-  const home = makeHome(t)
-  for (let index = 0; index < 10; index++) {
-    fs.writeFileSync(path.join(home, `bounded-index-entry-${index}.txt`), "")
-  }
-  const cachePath = makeCache(t)
-
-  buildIndex(t, home, cachePath, 45)
-
-  const content = fs.readFileSync(cachePath)
-  assert.ok(content.length <= 45)
-  assert.equal(content.at(-1), 0)
-  assert.ok(indexedPaths(cachePath).length < 10)
-})
-
-test("drains a capped index when fd reports broken pipes as exit 1", t => {
-  const home = makeHome(t)
-  const bin = path.join(home, "bin")
-  fs.mkdirSync(bin)
-  // Exceed the pipe buffer so closing the reader really does interrupt fd.
-  fs.writeFileSync(path.join(bin, "fd"), `#!${process.execPath}
-const fs = require("node:fs")
-try {
-  for (let i = 0; i < 20000; i++) fs.writeSync(1, "entry-" + i + "\\0")
-} catch (error) {
-  process.exit(1)
-}
-`, { mode: 0o700 })
-  const cachePath = makeCache(t)
-  const result = run(SearchCommand.indexCommand(home, cachePath, 45), {
-    ...process.env, PATH: bin + path.delimiter + process.env.PATH
-  })
-
-  assert.equal(result.status, 0, result.stderr.toString())
-  const content = fs.readFileSync(cachePath)
-  assert.ok(content.length <= 45)
-  assert.equal(content.at(-1), 0)
-  assert.deepEqual(indexedPaths(cachePath), ["entry-0", "entry-1", "entry-2", "entry-3", "entry-4"])
-})
-
 test("treats no matches as a successful empty result", t => {
   const home = makeHome(t)
   fs.writeFileSync(path.join(home, "alpha.txt"), "")
-  const cachePath = makeCache(t)
-  buildIndex(t, home, cachePath)
-
-  const result = search("does-not-match", cachePath)
+  const result = search("does-not-match", home)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.deepEqual(resultPaths(result.stdout), [])
 })
 
-test("reports a missing search index", () => {
-  const result = search("anything", "/definitely/not/an/index")
-
-  assert.equal(result.status, 66)
-  assert.match(result.stderr.toString(), /Search index is not available/)
-})
-
 test("reports an unavailable search directory", () => {
-  const result = run(SearchCommand.indexCommand("/definitely/not/a/directory", "/tmp/opencode/never-written"))
+  const result = search("a", "/definitely/not/a/directory")
 
   assert.equal(result.status, 66)
   assert.match(result.stderr.toString(), /Directory is not available/)

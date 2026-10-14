@@ -84,27 +84,25 @@ Reopening the overlay restores it, so you land back in that folder. The state
 file is limited to 8 KiB and written atomically with mode `0600` inside a mode
 `0700` plugin directory. No search query or result history is persisted.
 
-The same directory holds the search index cache (`index`), a bounded listing of
-the current scope that is rebuilt every time the overlay opens. It is written
-atomically with mode `0600` and can be deleted at any time.
+Older versions also wrote an `index` cache here. It is no longer used and can
+be deleted at any time.
 
 ## How it works
 
-Opening the overlay (and every folder scope change) runs
+After a 150 ms typing debounce, the overlay runs
 
 ```bash
 fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache …
 ```
 
-once in the current scope and caches the NUL-delimited result. Every keystroke
-then only runs `fzf --scheme=path --filter=<query>` over that cache, so typing
-stays instant no matter how large the home directory is; results use fzf's
+directly into `fzf --scheme=path --filter=<query>` in the current scope.
+There is no blocking cache-building pass or per-path Bash indexing loop;
+results use fzf's
 path-oriented ranking. Hidden entries are included and VCS ignore rules are
 disabled, minus the excluded directories listed above. `Tab` completion runs
 its own shallow `fd`/`fzf` pass over the immediate subfolders. User fzf
-options are cleared so they cannot change the output protocol. The index and
-search output are byte-limited before entering QML collectors; the UI
-additionally caps path lengths and result count.
+options are cleared so they cannot change the output protocol. Search output
+is byte-limited before entering QML collectors and capped at 200 results.
 
 ## Development
 

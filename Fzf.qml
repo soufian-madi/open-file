@@ -29,18 +29,14 @@ Item {
   property string lastScope: ""
   property string pendingScopeState: ""
   property bool stateDirReady: false
-  property bool indexReady: false
-  property string indexedScope: ""
 
   readonly property int maxStateBytes: 8192
-  readonly property int maxIndexBytes: 4194304
   readonly property int maxSearchOutputBytes: 262144
   readonly property int maxSearchErrorChars: 8192
 
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
   readonly property string stateDir: stateHome + "/soufian.open-file"
   readonly property string statePath: stateDir + "/state.json"
-  readonly property string indexPath: stateDir + "/index"
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -89,12 +85,7 @@ Item {
       if (i === 0 && root.scopeLoaded && root.lastScope !== "") field.completeText(root.lastScope)
     }
     root.restoring = false
-    // The cache on disk may be stale; rebuild it so results reflect the
-    // current state of the search scope.
-    root.indexReady = false
-    root.indexedScope = ""
     root.opened = true
-    root.ensureIndex(root.scopeLoaded ? root.lastScope : "")
     root.focusField()
   }
 
@@ -204,37 +195,17 @@ Item {
     }
   }
 
-  // Returns true when the cache for this scope is ready to filter. Otherwise
-  // starts (or keeps) indexing and the pending search runs when it finishes.
-  function ensureIndex(prefix) {
-    if (!root.stateDirReady) {
-      if (!stateDirProc.running) stateDirProc.running = true
-      return false
-    }
-    if (root.indexReady && root.indexedScope === prefix) return true
-    // Serialize writers to the single cache. Let the current scope finish,
-    // then runSearch() will build whichever scope the latest query needs.
-    if (indexProc.running) return false
-    root.indexReady = false
-    indexProc.pendingScope = prefix
-    indexProc.errorText = ""
-    indexProc.exec(SearchCommand.indexCommand(
-      root.dirs[0].path + (prefix !== "" ? "/" + prefix : ""), root.indexPath, root.maxIndexBytes))
-    return false
-  }
-
   function runSearch() {
     if (root.activeIndex < 0 || root.activeIndex >= root.dirs.length) return
     var field = fieldsRepeater.itemAt(root.activeIndex)
     var query = field ? field.text : ""
     if (query === "") return
-    if (!root.ensureIndex(SearchCommand.scope(query).prefix)) return
     // Set pendingGen only after exec(): stopping the previous process may
     // flush its collector synchronously, and that stale output must still
     // fail the generation check.
     searchProc.errorText = ""
     searchProc.exec(SearchCommand.searchCommand(
-      query, root.indexPath, root.maxResults, root.maxSearchOutputBytes))
+      query, root.dirs[root.activeIndex].path, root.maxResults, root.maxSearchOutputBytes))
     searchProc.pendingGen = root.searchGen
   }
 
@@ -310,42 +281,6 @@ Item {
 
   ListModel { id: resultModel }
 
-  // The index caps its output before it reaches the cache file.
-  Process {
-    id: indexProc
-    property string pendingScope: ""
-    property string errorText: ""
-    stdout: StdioCollector { waitForEnd: true }
-    stderr: SplitParser {
-      // Empty markers emit arbitrary chunks instead of buffering whole lines.
-      splitMarker: ""
-      onRead: function(data) {
-        var remaining = root.maxSearchErrorChars - indexProc.errorText.length
-        if (remaining > 0)
-          indexProc.errorText += String(data || "").slice(0, remaining)
-      }
-    }
-    onExited: function(exitCode) {
-      if (exitCode === 0) {
-        root.indexReady = true
-        root.indexedScope = indexProc.pendingScope
-        root.runSearch()
-        return
-      }
-      // Indexes belong to scopes, not query generations. Typing more letters
-      // must not discard a failure and leave the latest query waiting forever.
-      var field = fieldsRepeater.itemAt(root.activeIndex)
-      if (!root.opened || !field || field.text === "") return
-      if (SearchCommand.scope(field.text).prefix !== indexProc.pendingScope) {
-        root.runSearch()
-        return
-      }
-      root.searching = false
-      var detail = indexProc.errorText.trim()
-      root.searchError = detail !== "" ? detail : ("Search index failed (exit " + exitCode + ")")
-    }
-  }
-
   Process {
     id: scopeReadProc
     command: BoundedFile.readCommand(root.statePath, root.maxStateBytes)
@@ -368,11 +303,8 @@ Item {
       if (exitCode === 0) {
         root.stateDirReady = true
         root.flushScopeState()
-        root.runSearch()
       } else {
         console.warn("soufian.open-file: could not create state directory", root.stateDir)
-        root.searching = false
-        root.searchError = "Could not create search state directory: " + root.stateDir
       }
     }
   }
