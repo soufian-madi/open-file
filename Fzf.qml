@@ -207,13 +207,17 @@ Item {
   // Returns true when the cache for this scope is ready to filter. Otherwise
   // starts (or keeps) indexing and the pending search runs when it finishes.
   function ensureIndex(prefix) {
-    if (!root.stateDirReady) return false
+    if (!root.stateDirReady) {
+      if (!stateDirProc.running) stateDirProc.running = true
+      return false
+    }
     if (root.indexReady && root.indexedScope === prefix) return true
-    if (indexProc.running && indexProc.pendingScope === prefix) return false
+    // Serialize writers to the single cache. Let the current scope finish,
+    // then runSearch() will build whichever scope the latest query needs.
+    if (indexProc.running) return false
+    root.indexReady = false
     indexProc.pendingScope = prefix
-    indexProc.pendingGen = root.searchGen
     indexProc.errorText = ""
-    if (indexProc.running) indexProc.running = false
     indexProc.exec(SearchCommand.indexCommand(
       root.dirs[0].path + (prefix !== "" ? "/" + prefix : ""), root.indexPath, root.maxIndexBytes))
     return false
@@ -310,7 +314,6 @@ Item {
   Process {
     id: indexProc
     property string pendingScope: ""
-    property int pendingGen: 0
     property string errorText: ""
     stdout: StdioCollector { waitForEnd: true }
     stderr: SplitParser {
@@ -329,7 +332,14 @@ Item {
         root.runSearch()
         return
       }
-      if (root.searchGen !== indexProc.pendingGen) return
+      // Indexes belong to scopes, not query generations. Typing more letters
+      // must not discard a failure and leave the latest query waiting forever.
+      var field = fieldsRepeater.itemAt(root.activeIndex)
+      if (!root.opened || !field || field.text === "") return
+      if (SearchCommand.scope(field.text).prefix !== indexProc.pendingScope) {
+        root.runSearch()
+        return
+      }
       root.searching = false
       var detail = indexProc.errorText.trim()
       root.searchError = detail !== "" ? detail : ("Search index failed (exit " + exitCode + ")")
@@ -361,6 +371,8 @@ Item {
         root.runSearch()
       } else {
         console.warn("soufian.open-file: could not create state directory", root.stateDir)
+        root.searching = false
+        root.searchError = "Could not create search state directory: " + root.stateDir
       }
     }
   }

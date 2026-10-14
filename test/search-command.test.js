@@ -159,6 +159,31 @@ test("caps the index byte size without emitting a partial path", t => {
   assert.ok(indexedPaths(cachePath).length < 10)
 })
 
+test("drains a capped index when fd reports broken pipes as exit 1", t => {
+  const home = makeHome(t)
+  const bin = path.join(home, "bin")
+  fs.mkdirSync(bin)
+  // Exceed the pipe buffer so closing the reader really does interrupt fd.
+  fs.writeFileSync(path.join(bin, "fd"), `#!${process.execPath}
+const fs = require("node:fs")
+try {
+  for (let i = 0; i < 20000; i++) fs.writeSync(1, "entry-" + i + "\\0")
+} catch (error) {
+  process.exit(1)
+}
+`, { mode: 0o700 })
+  const cachePath = makeCache(t)
+  const result = run(SearchCommand.indexCommand(home, cachePath, 45), {
+    ...process.env, PATH: bin + path.delimiter + process.env.PATH
+  })
+
+  assert.equal(result.status, 0, result.stderr.toString())
+  const content = fs.readFileSync(cachePath)
+  assert.ok(content.length <= 45)
+  assert.equal(content.at(-1), 0)
+  assert.deepEqual(indexedPaths(cachePath), ["entry-0", "entry-1", "entry-2", "entry-3", "entry-4"])
+})
+
 test("treats no matches as a successful empty result", t => {
   const home = makeHome(t)
   fs.writeFileSync(path.join(home, "alpha.txt"), "")

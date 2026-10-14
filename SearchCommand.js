@@ -45,7 +45,9 @@ var indexScript =
   "  local total=0 size\n" +
   "  while IFS= read -r -d '' result; do\n" +
   "    size=${#result}\n" +
-  "    if (( total + size + 1 > $1 )); then break; fi\n" +
+  // Drain excess output instead of closing fd's pipe. fd can report a broken
+  // pipe as exit 1 (not just SIGPIPE/141), which looks like an index failure.
+  "    if (( total + size + 1 > $1 )); then cat > /dev/null; break; fi\n" +
   "    printf '%s\\0' \"$result\"\n" +
   "    total=$((total + size + 1))\n" +
   "  done\n" +
