@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "soufian.open-file",
   "name": "open-file",
-  "version": "2.0.0",
+  "version": "1.0",
   "author": "Soufian Madi",
   "license": "MIT",
   "description": "Fuzzy-find files and folders anywhere in your home directory and open them",

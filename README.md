@@ -20,7 +20,8 @@ Trash). Selecting an entry opens it with its default application.
 `Tab` completes the best fuzzy-matching immediate child folder — `adult` finds
 `Adulting/` — and keeps completing subfolders as you go. A completed folder
 prefix narrows the search to that folder while results keep showing
-home-relative paths.
+home-relative paths. Reopening the overlay lands you back in the folder scope
+you last searched.
 
 ## Requirements
 
@@ -76,26 +77,34 @@ handlers in this session. Everything else opens with `xdg-open`.
 
 ## State
 
-The last focused field is stored in
+The folder scope you last searched in — the query text up to and including its
+last slash, e.g. `Ai-folders/voice-message-to-seer/` — is stored in
 `${XDG_STATE_HOME:-$HOME/.local/state}/soufian.open-file/state.json`.
-The state file is limited to 8 KiB and written atomically with mode `0600`
-inside a mode `0700` plugin directory. No search query or result history is
-persisted.
+Reopening the overlay restores it, so you land back in that folder. The state
+file is limited to 8 KiB and written atomically with mode `0600` inside a mode
+`0700` plugin directory. No search query or result history is persisted.
+
+The same directory holds the search index cache (`index`), a bounded listing of
+the current scope that is rebuilt every time the overlay opens. It is written
+atomically with mode `0600` and can be deleted at any time.
 
 ## How it works
 
-Each keystroke is debounced (150 ms) and runs
+Opening the overlay (and every folder scope change) runs
 
 ```bash
-fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache … | fzf --scheme=path --filter=<query>
+fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache …
 ```
 
-in the home directory, so results use fzf's path-oriented ranking. Hidden
-entries are included and VCS ignore rules are disabled, minus the excluded
-directories listed above. User fzf options are cleared so they cannot change
-the output protocol. Input files and search output are byte-limited before
-entering QML collectors; the UI additionally caps directory entries, path
-lengths, and result count.
+once in the current scope and caches the NUL-delimited result. Every keystroke
+then only runs `fzf --scheme=path --filter=<query>` over that cache, so typing
+stays instant no matter how large the home directory is; results use fzf's
+path-oriented ranking. Hidden entries are included and VCS ignore rules are
+disabled, minus the excluded directories listed above. `Tab` completion runs
+its own shallow `fd`/`fzf` pass over the immediate subfolders. User fzf
+options are cleared so they cannot change the output protocol. The index and
+search output are byte-limited before entering QML collectors; the UI
+additionally caps path lengths and result count.
 
 ## Development
 

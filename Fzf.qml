@@ -5,10 +5,9 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "BoundedFile.js" as BoundedFile
-import "LastFieldState.js" as LastFieldState
+import "ScopeState.js" as ScopeState
 import "SearchCommand.js" as SearchCommand
 import "OpenCommand.js" as OpenCommand
-import "UserDirs.js" as UserDirs
 
 Item {
   id: root
@@ -24,25 +23,24 @@ Item {
   property int searchGen: 0
   property bool searching: false
   property string searchError: ""
-  property string dirsError: ""
   property bool dirsLoaded: false
-  property bool lastFieldLoaded: false
-  property string lastFieldPath: ""
-  property string pendingLastFieldState: ""
+  property bool restoring: false
+  property bool scopeLoaded: false
+  property string lastScope: ""
+  property string pendingScopeState: ""
   property bool stateDirReady: false
+  property bool indexReady: false
+  property string indexedScope: ""
 
-  readonly property int maxUserDirsBytes: 65536
   readonly property int maxStateBytes: 8192
-  readonly property int maxDirectoryEntries: 64
-  readonly property int maxPathLength: 4096
+  readonly property int maxIndexBytes: 4194304
   readonly property int maxSearchOutputBytes: 262144
   readonly property int maxSearchErrorChars: 8192
 
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
   readonly property string stateDir: stateHome + "/soufian.open-file"
   readonly property string statePath: stateDir + "/state.json"
-  readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"
-  readonly property string userDirsPath: configHome + "/user-dirs.dirs"
+  readonly property string indexPath: stateDir + "/index"
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -65,7 +63,8 @@ Item {
 
   Component.onCompleted: {
     root.loadHome()
-    lastFieldReadProc.running = true
+    scopeReadProc.running = true
+    stateDirProc.running = true
   }
 
   function resetSearch(clearActive) {
@@ -82,12 +81,21 @@ Item {
 
   function open(payloadJson) {
     root.resetSearch(true)
-    root.opened = true
+    root.restoring = true
     for (var i = 0; i < fieldsRepeater.count; i++) {
       var field = fieldsRepeater.itemAt(i)
-      if (field) field.clearText()
+      if (!field) continue
+      field.clearText()
+      if (i === 0 && root.scopeLoaded && root.lastScope !== "") field.completeText(root.lastScope)
     }
-    root.focusPreferredField()
+    root.restoring = false
+    // The cache on disk may be stale; rebuild it so results reflect the
+    // current state of the search scope.
+    root.indexReady = false
+    root.indexedScope = ""
+    root.opened = true
+    root.ensureIndex(root.scopeLoaded ? root.lastScope : "")
+    root.focusField()
   }
 
   function close() {
@@ -107,68 +115,57 @@ Item {
     else root.open("{}")
   }
 
-  function loadUserDirs(raw) {
-    var parsed = UserDirs.parseUserDirs(
-      raw, Quickshell.env("HOME"), root.maxDirectoryEntries, root.maxPathLength)
-    root.resetSearch(true)
-    root.dirs = parsed
-    root.dirsLoaded = true
-    root.dirsError = parsed.length === 0 ? "No searchable XDG user directories found" : ""
-    root.focusPreferredField()
-  }
-
   function loadHome() {
     var home = Quickshell.env("HOME")
     root.dirs = [{ name: "Home", path: home }]
     root.dirsLoaded = true
-    root.dirsError = ""
-    root.focusPreferredField()
+    root.focusField()
   }
 
-  function failUserDirs(reason) {
-    root.resetSearch(true)
-    root.dirs = []
-    root.dirsLoaded = true
-    root.dirsError = reason || ("Could not read " + root.userDirsPath)
+  function loadScope(raw) {
+    root.lastScope = ScopeState.parse(raw)
+    root.scopeLoaded = true
+    // The state read can finish after the overlay was opened; restore into an
+    // empty field so an early open still lands in the remembered scope.
+    if (root.opened && root.lastScope !== "") {
+      var field = fieldsRepeater.itemAt(0)
+      if (field && field.text === "") {
+        root.restoring = true
+        field.completeText(root.lastScope)
+        root.restoring = false
+      }
+    }
+    root.focusField()
   }
 
-  function loadLastField(raw) {
-    root.lastFieldPath = LastFieldState.parse(raw)
-    root.lastFieldLoaded = true
-    root.focusPreferredField()
-  }
-
-  function focusPreferredField() {
-    if (!root.opened || !root.dirsLoaded || !root.lastFieldLoaded) return
+  function focusField() {
+    if (!root.opened || !root.dirsLoaded || !root.scopeLoaded) return
     Qt.callLater(function() {
       if (!root.opened) return
-      var index = LastFieldState.preferredIndex(root.dirs, root.lastFieldPath)
-      var field = index >= 0 ? fieldsRepeater.itemAt(index) : null
+      var field = fieldsRepeater.itemAt(0)
       if (field) field.focusInput()
     })
   }
 
-  function rememberField(index) {
-    if (!root.lastFieldLoaded || index < 0 || index >= root.dirs.length) return
-    var path = root.dirs[index].path
-    if (path === root.lastFieldPath && root.pendingLastFieldState === "") return
+  function rememberScope(scope) {
+    if (root.restoring || !root.scopeLoaded || scope === root.lastScope) return
 
-    var serialized = LastFieldState.serialize(path)
+    var serialized = ScopeState.serialize(scope)
     if (serialized === "") return
-    root.lastFieldPath = path
-    root.pendingLastFieldState = serialized
+    root.lastScope = scope
+    root.pendingScopeState = serialized
 
     if (root.stateDirReady) {
-      root.flushLastFieldState()
+      root.flushScopeState()
     } else if (!stateDirProc.running) {
       stateDirProc.running = true
     }
   }
 
-  function flushLastFieldState() {
-    if (root.pendingLastFieldState === "" || stateWriteProc.running) return
-    stateWriteProc.payload = root.pendingLastFieldState
-    root.pendingLastFieldState = ""
+  function flushScopeState() {
+    if (root.pendingScopeState === "" || stateWriteProc.running) return
+    stateWriteProc.payload = root.pendingScopeState
+    root.pendingScopeState = ""
     stateWriteProc.command = BoundedFile.writeCommand(
       root.statePath, stateWriteProc.payload, root.maxStateBytes)
     stateWriteProc.running = true
@@ -176,6 +173,7 @@ Item {
 
   function onQueryChanged(index, text) {
     if (completionProc.running) completionProc.running = false
+    if (!root.restoring) root.rememberScope(SearchCommand.scope(text).prefix)
     if (text === "") {
       if (root.activeIndex === index) root.resetSearch(true)
       return
@@ -194,7 +192,6 @@ Item {
   }
 
   function onFieldFocused(index) {
-    root.rememberField(index)
     // Focusing another field abandons the previous search: clear the text of
     // every other field so a stale query cannot resurrect its results.
     for (var i = 0; i < fieldsRepeater.count; i++) {
@@ -207,18 +204,33 @@ Item {
     }
   }
 
+  // Returns true when the cache for this scope is ready to filter. Otherwise
+  // starts (or keeps) indexing and the pending search runs when it finishes.
+  function ensureIndex(prefix) {
+    if (!root.stateDirReady) return false
+    if (root.indexReady && root.indexedScope === prefix) return true
+    if (indexProc.running && indexProc.pendingScope === prefix) return false
+    indexProc.pendingScope = prefix
+    indexProc.pendingGen = root.searchGen
+    indexProc.errorText = ""
+    if (indexProc.running) indexProc.running = false
+    indexProc.exec(SearchCommand.indexCommand(
+      root.dirs[0].path + (prefix !== "" ? "/" + prefix : ""), root.indexPath, root.maxIndexBytes))
+    return false
+  }
+
   function runSearch() {
     if (root.activeIndex < 0 || root.activeIndex >= root.dirs.length) return
     var field = fieldsRepeater.itemAt(root.activeIndex)
     var query = field ? field.text : ""
     if (query === "") return
-    var dirPath = root.dirs[root.activeIndex].path
+    if (!root.ensureIndex(SearchCommand.scope(query).prefix)) return
     // Set pendingGen only after exec(): stopping the previous process may
     // flush its collector synchronously, and that stale output must still
     // fail the generation check.
     searchProc.errorText = ""
-    searchProc.exec(SearchCommand.command(
-      query, dirPath, root.maxResults, root.maxSearchOutputBytes))
+    searchProc.exec(SearchCommand.searchCommand(
+      query, root.indexPath, root.maxResults, root.maxSearchOutputBytes))
     searchProc.pendingGen = root.searchGen
   }
 
@@ -276,8 +288,8 @@ Item {
     var field = fieldsRepeater.itemAt(0)
     if (!field || completionProc.running) return
     completionProc.query = field.text
-    completionProc.exec(SearchCommand.command(
-      field.text, root.dirs[0].path, 1, root.maxSearchOutputBytes, true))
+    completionProc.exec(SearchCommand.completionCommand(
+      field.text, root.dirs[0].path, 1, root.maxSearchOutputBytes))
   }
 
   Process {
@@ -294,28 +306,46 @@ Item {
 
   ListModel { id: resultModel }
 
-  // Both readers cap regular-file input before it reaches the collectors.
+  // The index caps its output before it reaches the cache file.
   Process {
-    id: userDirsProc
-    command: BoundedFile.readCommand(root.userDirsPath, root.maxUserDirsBytes)
-    stdout: StdioCollector { id: userDirsStdout; waitForEnd: true }
+    id: indexProc
+    property string pendingScope: ""
+    property int pendingGen: 0
+    property string errorText: ""
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: SplitParser {
+      // Empty markers emit arbitrary chunks instead of buffering whole lines.
+      splitMarker: ""
+      onRead: function(data) {
+        var remaining = root.maxSearchErrorChars - indexProc.errorText.length
+        if (remaining > 0)
+          indexProc.errorText += String(data || "").slice(0, remaining)
+      }
+    }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.loadUserDirs(userDirsStdout.text)
-      else if (exitCode === 65) root.failUserDirs("XDG user directories file is too large")
-      else root.failUserDirs()
+      if (exitCode === 0) {
+        root.indexReady = true
+        root.indexedScope = indexProc.pendingScope
+        root.runSearch()
+        return
+      }
+      if (root.searchGen !== indexProc.pendingGen) return
+      root.searching = false
+      var detail = indexProc.errorText.trim()
+      root.searchError = detail !== "" ? detail : ("Search index failed (exit " + exitCode + ")")
     }
   }
 
   Process {
-    id: lastFieldReadProc
+    id: scopeReadProc
     command: BoundedFile.readCommand(root.statePath, root.maxStateBytes)
-    stdout: StdioCollector { id: lastFieldReadStdout; waitForEnd: true }
+    stdout: StdioCollector { id: scopeReadStdout; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.loadLastField(lastFieldReadStdout.text)
+      if (exitCode === 0) root.loadScope(scopeReadStdout.text)
       else {
         if (exitCode === 65)
           console.warn("soufian.open-file: state file exceeds byte limit", root.statePath)
-        root.loadLastField("")
+        root.loadScope("")
       }
     }
   }
@@ -327,7 +357,8 @@ Item {
     onExited: function(exitCode) {
       if (exitCode === 0) {
         root.stateDirReady = true
-        root.flushLastFieldState()
+        root.flushScopeState()
+        root.runSearch()
       } else {
         console.warn("soufian.open-file: could not create state directory", root.stateDir)
       }
@@ -341,11 +372,11 @@ Item {
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         console.warn("soufian.open-file: state write failed with exit", exitCode)
-        // Let a later focus retry the same path without immediately spinning.
-        root.lastFieldPath = ""
+        // Let a later scope change retry the same state without immediately spinning.
+        root.lastScope = ""
       }
       stateWriteProc.payload = ""
-      root.flushLastFieldState()
+      root.flushScopeState()
     }
   }
 
@@ -523,21 +554,6 @@ Item {
                 }
               }
             }
-          }
-
-          Text {
-            visible: root.dirs.length === 0
-            width: parent.width
-            height: visible ? root.fieldHeight : 0
-            text: root.dirsError || "No searchable XDG user directories found"
-            textFormat: Text.PlainText
-            color: root.foreground
-            opacity: 0.7
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            wrapMode: Text.WordWrap
           }
         }
 
