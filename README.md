@@ -46,7 +46,15 @@ rmdir -- "${XDG_STATE_HOME:-$HOME/.local/state}/soufian.open-file" 2>/dev/null |
 
 ## Usage
 
-Summon the overlay through the shell:
+The plugin registers a **folder icon** in the bar — the right section by
+default, since `barWidget.defaultSection` is `right`. Click it to summon the
+overlay and again to close it. Move it with:
+
+```bash
+omarchy bar move soufian.open-file --section left
+```
+
+The overlay can also be summoned through the shell:
 
 ```bash
 omarchy-shell shell toggle soufian.open-file
@@ -110,6 +118,18 @@ The plugin uses the standard third-party overlay lifecycle: Omarchy injects the
 scoped `shell` and public `manifest` facades, calls `open(payloadJson)` when the
 overlay is summoned, and calls `close()` when it is hidden. The overlay is
 loaded on demand and reports its state through `opened`.
+
+The folder button is a second entry point (`FolderButton.qml`, kind
+`bar-widget`). The bar host injects its scoped `bar` facade plus `moduleName`
+and `settings`; the button summons the same overlay through the scoped `shell`
+facade, falling back to `omarchy-shell shell toggle` when that facade is
+unavailable. The entry point is deliberately **not** named `BarWidget.qml`:
+a plugin-side QML file whose name matches the type it inherits (the `BarWidget`
+base from `qs.Ui`) fails to load with `File name case mismatch`. `FolderButton.qml`
+inherits `BarWidget` without shadowing the type name. Gotcha: after such a
+failure the running shell keeps returning that error for every widget load from
+the plugin directory until `omarchy restart shell` — renaming alone does not
+clear it.
 
 Run the parser, search-pipeline, and completion tests with:
 

@@ -7,9 +7,18 @@
   "license": "MIT",
   "description": "Fuzzy-find files and folders anywhere in your home directory and open them",
   "kinds": [
-    "overlay"
+    "overlay",
+    "bar-widget"
   ],
   "entryPoints": {
-    "overlay": "Fzf.qml"
+    "overlay": "Fzf.qml",
+    "barWidget": "FolderButton.qml"
+  },
+  "barWidget": {
+    "displayName": "Open File",
+    "description": "Fuzzy-find files and folders anywhere in your home directory",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right"
   }
 }
