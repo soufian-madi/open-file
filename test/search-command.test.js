@@ -159,6 +159,29 @@ test("treats fzf option syntax in queries as literal text", t => {
   }
 })
 
+test("the environment fallback for fzf < 0.47 filters exactly like the argument form", () => {
+  // Old fzf cannot read options from a file descriptor; the script then falls
+  // back to FZF_DEFAULT_OPTS. That channel must reproduce --filter semantics
+  // byte-exactly and must not allow option injection either.
+  const candidates = ["hello world", "it's here", "plain", "x' --print-query 'y.txt", "--filter=pwned.txt"]
+  const input = candidates.join("\0") + "\0"
+
+  for (const query of ["hello world", "it's", "x' --print-query 'y", "--filter=pwned"]) {
+    const clean = { ...process.env, FZF_DEFAULT_OPTS: "", FZF_DEFAULT_OPTS_FILE: "" }
+    const viaArgs = spawnSync("fzf", ["--scheme=path", "--read0", "--print0", "--filter=" + query],
+      { input, env: clean, timeout: 5000 })
+    const viaEnv = spawnSync("fzf", ["--scheme=path", "--read0", "--print0"],
+      {
+        input,
+        env: { ...clean, FZF_DEFAULT_OPTS: "--filter=" + SearchCommand.quotedOptionValue(query) },
+        timeout: 5000
+      })
+    assert.equal(viaArgs.status, 0, viaArgs.stderr.toString())
+    assert.equal(viaEnv.status, 0, viaEnv.stderr.toString())
+    assert.deepEqual(resultPaths(viaEnv.stdout), resultPaths(viaArgs.stdout), query)
+  }
+})
+
 test("keeps queries, folder scopes and the search root off every command line", t => {
   const home = makeHome(t)
   fs.mkdirSync(path.join(home, "Private notes"), { recursive: true })
@@ -166,11 +189,14 @@ test("keeps queries, folder scopes and the search root off every command line", 
 
   // Stub fd/fzf record what /proc exposes to other local users while a search
   // runs: their argv, their own cmdline and environ, and their parent shell's.
+  // The fzf stub advertises FZF_DEFAULT_OPTS_FILE so the script picks the file
+  // descriptor channel deterministically, whatever fzf the test host has.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-stubs-"))
   t.after(() => fs.rmSync(bin, { recursive: true, force: true }))
   const log = path.join(bin, "procfs.log")
   const stub =
     "#!/bin/bash\n" +
+    "if [[ $1 == --help ]]; then printf 'FZF_DEFAULT_OPTS_FILE\\n'; exit 0; fi\n" +
     "{\n" +
     "  printf 'args:'; printf '<%s>' \"$@\"; printf '\\n'\n" +
     "  printf 'self cmdline:'; tr '\\0' ' ' < /proc/self/cmdline; printf '\\n'\n" +

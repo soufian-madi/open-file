@@ -7,8 +7,9 @@
 // search runs. Builders therefore return { command, input }: the command line
 // carries only static text and limits, the typed values travel to the shell
 // over standard input as NUL-delimited records, and fzf receives the query as
-// a quoted --filter option read from an inherited file descriptor instead of
-// an argument or an environment variable.
+// a quoted --filter option — from an inherited file descriptor on fzf >= 0.47,
+// or from FZF_DEFAULT_OPTS (owner-only on procfs) on older fzf. Never an
+// argument.
 
 var fdFlags =
   "--hidden --no-ignore-vcs --exclude .git --exclude .cache --exclude node_modules " +
@@ -50,11 +51,19 @@ var searchScript =
   "  printf 'Required command not found: fzf\\n' >&2\n" +
   "  exit 127\n" +
   "fi\n" +
-  // fzf reads its options from an inherited file descriptor: the quoted
-  // --filter record is never an argument or an environment variable.
+  // The quoted --filter record must not become an argument: fzf >= 0.47 reads
+  // its options from the inherited file descriptor below, so the query is in
+  // neither argv nor the environment. Older fzf has no such channel, and
+  // FZF_DEFAULT_OPTS is the only alternative that is not a command line;
+  // /proc/<pid>/environ is readable only by the owning user.
+  "exec 3<<< \"$fzf_filter\"\n" +
+  "if fzf --help 2>&1 | grep -q FZF_DEFAULT_OPTS_FILE; then\n" +
+  "  export FZF_DEFAULT_OPTS= FZF_DEFAULT_OPTS_FILE=/dev/fd/3\n" +
+  "else\n" +
+  "  export FZF_DEFAULT_OPTS=\"$fzf_filter\" FZF_DEFAULT_OPTS_FILE=\n" +
+  "fi\n" +
   "fd --type f --type d " + fdFlags + " | " +
-    "FZF_DEFAULT_OPTS= FZF_DEFAULT_OPTS_FILE=/dev/fd/3 " +
-    "fzf --scheme=path --read0 --print0 3<<< \"$fzf_filter\" | " +
+    "fzf --scheme=path --read0 --print0 | " +
     "emit_bounded_results \"$1\" \"$2\" \"$prefix\"\n" +
   "statuses=(\"${PIPESTATUS[@]}\")\n" +
   "if (( statuses[0] != 0 && statuses[0] != 141 )); then exit \"${statuses[0]}\"; fi\n" +

@@ -9,9 +9,15 @@ permissions:
 
 jobs:
   node:
-    name: Node.js
+    name: Node.js (fzf ${{ matrix.fzf }})
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    strategy:
+      matrix:
+        # The search script feeds fzf its query through an inherited file
+        # descriptor (fzf >= 0.47) and falls back to FZF_DEFAULT_OPTS on older
+        # fzf. Run the suite against both channels.
+        fzf: [system, upstream]
 
     steps:
       - name: Check out repository
@@ -25,10 +31,17 @@ jobs:
       - name: Install search dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends fd-find fzf
+          sudo apt-get install --yes --no-install-recommends fd-find
           if ! command -v fd >/dev/null 2>&1; then
             sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd
           fi
+          if [ "${{ matrix.fzf }}" = "system" ]; then
+            sudo apt-get install --yes --no-install-recommends fzf
+          else
+            curl -sL https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_amd64.tar.gz \
+              | sudo tar xz -C /usr/local/bin fzf
+          fi
+          fzf --version
 
       - name: Run tests
         run: node --test

@@ -115,10 +115,11 @@ is byte-limited before entering QML collectors and capped at 200 results.
 Typed queries and folder scopes never appear on a command line. `/proc/<pid>/cmdline`
 is world-readable on Linux, which would expose searches to other local users
 while they run, so the query and scope reach the search script over standard
-input and fzf receives the query as a quoted `--filter` option read from an
-inherited file descriptor. The saved folder scope is written to the state file
-the same way. Nothing you type is passed as an argument or an environment
-variable to any subprocess.
+input, and fzf receives the query as a quoted `--filter` option read from an
+inherited file descriptor (fzf ≥ 0.47). On older fzf that option comes through
+`FZF_DEFAULT_OPTS` instead, which `/proc/<pid>/environ` exposes only to your
+own user. The saved folder scope is written to the state file over standard
+input as well. Nothing you type is ever passed as a command line argument.
 
 ## Development
 
