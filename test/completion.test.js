@@ -14,8 +14,9 @@ test('completes the best immediate folder and then subfolders', t => {
   fs.writeFileSync(path.join(home, 'adult-file.md'), '')
 
   function complete(query) {
-    const cmd = Search.completionCommand(query, home, 200, 262144)
-    const result = spawnSync(cmd[0], cmd.slice(1), { timeout: 3000 })
+    const plan = Search.completionCommand(query, home, 200, 262144)
+    const result = spawnSync(plan.command[0], plan.command.slice(1),
+      { timeout: 3000, input: plan.input })
     assert.equal(result.status, 0, result.stderr.toString())
     return result.stdout.toString().split('\0').filter(Boolean)
   }

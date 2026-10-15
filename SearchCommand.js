@@ -1,6 +1,14 @@
 // Builds the direct headless fd/fzf pipeline used by the overlay. User fzf options are
 // cleared because options that change the output protocol (for example
 // --print-query or --print0) would otherwise turn non-path data into results.
+//
+// Typed searches are private. /proc/<pid>/cmdline is world-readable, so a query
+// or folder scope placed in argv is visible to every local user while the
+// search runs. Builders therefore return { command, input }: the command line
+// carries only static text and limits, the typed values travel to the shell
+// over standard input as NUL-delimited records, and fzf receives the query as
+// a quoted --filter option read from an inherited file descriptor instead of
+// an argument or an environment variable.
 
 var fdFlags =
   "--hidden --no-ignore-vcs --exclude .git --exclude .cache --exclude node_modules " +
@@ -22,13 +30,16 @@ var emitFunction =
 
 var searchScript =
   "export LC_ALL=C\n" +
+  "IFS= read -r -d '' fzf_filter || exit 64\n" +
+  "IFS= read -r -d '' directory || exit 64\n" +
+  "IFS= read -r -d '' prefix || exit 64\n" +
   emitFunction +
-  "if [[ ! $3 =~ ^[1-9][0-9]*$ || ! $4 =~ ^[1-9][0-9]*$ ]]; then\n" +
+  "if [[ ! $1 =~ ^[1-9][0-9]*$ || ! $2 =~ ^[1-9][0-9]*$ ]]; then\n" +
   "  printf 'Invalid search output limit\\n' >&2\n" +
   "  exit 64\n" +
   "fi\n" +
-  "if ! cd -- \"$2\" 2>/dev/null; then\n" +
-  "  printf 'Directory is not available: %s\\n' \"$2\" >&2\n" +
+  "if ! cd -- \"$directory\" 2>/dev/null; then\n" +
+  "  printf 'Directory is not available: %s\\n' \"$directory\" >&2\n" +
   "  exit 66\n" +
   "fi\n" +
   "if ! command -v fd >/dev/null 2>&1; then\n" +
@@ -39,10 +50,12 @@ var searchScript =
   "  printf 'Required command not found: fzf\\n' >&2\n" +
   "  exit 127\n" +
   "fi\n" +
+  // fzf reads its options from an inherited file descriptor: the quoted
+  // --filter record is never an argument or an environment variable.
   "fd --type f --type d " + fdFlags + " | " +
-    "env FZF_DEFAULT_OPTS= FZF_DEFAULT_OPTS_FILE= " +
-    "fzf --scheme=path --read0 --print0 --filter=\"$1\" | " +
-    "emit_bounded_results \"$3\" \"$4\" \"$5\"\n" +
+    "FZF_DEFAULT_OPTS= FZF_DEFAULT_OPTS_FILE=/dev/fd/3 " +
+    "fzf --scheme=path --read0 --print0 3<<< \"$fzf_filter\" | " +
+    "emit_bounded_results \"$1\" \"$2\" \"$prefix\"\n" +
   "statuses=(\"${PIPESTATUS[@]}\")\n" +
   "if (( statuses[0] != 0 && statuses[0] != 141 )); then exit \"${statuses[0]}\"; fi\n" +
   "if (( statuses[1] != 0 && statuses[1] != 1 && statuses[1] != 141 )); then exit \"${statuses[1]}\"; fi\n" +
@@ -63,27 +76,50 @@ function normalizedLimit(max) {
   return isFinite(value) && value > 0 ? value : 1
 }
 
-function searchCommand(query, directory, maxResults, maxOutputBytes) {
+// NUL-delimited records for the subprocess's standard input. NUL is the one
+// byte that cannot travel in a C string, so it is stripped defensively.
+function inputRecords(values) {
+  return values.map(function(value) {
+    return String(value).replace(/\0/g, "")
+  }).join("\0") + "\0"
+}
+
+// POSIX single-quote encoding for fzf's option parser: a value wrapped in
+// single quotes is read literally, and an embedded quote is written as '\''
+// (close, escaped quote, reopen). Round-trips spaces, quotes, backslashes and
+// newlines byte-exactly, and cannot smuggle extra options past the parser.
+function quotedOptionValue(value) {
+  return "'" + String(value).replace(/\0/g, "").replace(/'/g, "'\\''") + "'"
+}
+
+function buildCommand(script, query, directory, maxResults, maxOutputBytes) {
   var scoped = scope(query)
-  return [
-    "bash", "-c", searchScript, "bash", scoped.query, String(directory) + "/" + scoped.prefix,
-    String(normalizedLimit(maxResults)), String(normalizedLimit(maxOutputBytes)), scoped.prefix
-  ]
+  return {
+    command: ["bash", "-c", script, "bash",
+      String(normalizedLimit(maxResults)), String(normalizedLimit(maxOutputBytes))],
+    input: inputRecords([
+      "--filter=" + quotedOptionValue(scoped.query),
+      String(directory) + "/" + scoped.prefix,
+      scoped.prefix
+    ])
+  }
+}
+
+function searchCommand(query, directory, maxResults, maxOutputBytes) {
+  return buildCommand(searchScript, query, directory, maxResults, maxOutputBytes)
 }
 
 function completionCommand(query, directory, maxResults, maxOutputBytes) {
-  var scoped = scope(query)
-  return [
-    "bash", "-c", searchScript.replace("fd --type f --type d", "fd --max-depth 1 --type d"),
-    "bash", scoped.query, String(directory) + "/" + scoped.prefix,
-    String(normalizedLimit(maxResults)), String(normalizedLimit(maxOutputBytes)), scoped.prefix
-  ]
+  return buildCommand(searchScript.replace("fd --type f --type d", "fd --max-depth 1 --type d"),
+    query, directory, maxResults, maxOutputBytes)
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
     searchScript: searchScript,
     scope: scope,
+    inputRecords: inputRecords,
+    quotedOptionValue: quotedOptionValue,
     searchCommand: searchCommand,
     completionCommand: completionCommand
   }

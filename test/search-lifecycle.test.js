@@ -15,7 +15,7 @@ test("starts a direct search without waiting for state storage or an index", () 
     },
     fieldsRepeater: { itemAt() { return { text: "folder/a" } } },
     SearchCommand: {
-      searchCommand(...args) { calls.push(args); return ["search"] }
+      searchCommand(...args) { calls.push(args); return { command: ["search"], input: "typed" } }
     },
     searchProc: { exec(command) { this.command = command } }
   }
@@ -25,6 +25,7 @@ test("starts a direct search without waiting for state storage or an index", () 
 
   assert.deepEqual(calls, [["folder/a", "/home/test", 200, 262144]])
   assert.deepEqual(context.searchProc.command, ["search"])
+  assert.equal(context.searchProc.pendingInput, "typed")
   assert.equal(context.searchProc.pendingGen, 12)
   assert.doesNotMatch(qml, /indexProc|ensureIndex|indexReady/)
 })

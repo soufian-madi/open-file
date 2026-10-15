@@ -28,3 +28,27 @@ test("renders every Text item as plain text", () => {
     assert.match(item.block, /^\s*textFormat: Text\.PlainText$/m, `Text item in ${item.file}`)
   }
 })
+
+test("delivers typed input to subprocesses over stdin, never as arguments", () => {
+  const qml = fs.readFileSync(path.join(root, "Fzf.qml"), "utf8")
+
+  // Every process fed a command plan — search, completion, state write — must
+  // accept stdin and deliver the plan's input when it starts.
+  const stdinProcesses = qml.match(/stdinEnabled: true/g) || []
+  assert.ok(stdinProcesses.length >= 3,
+    "search, completion and state write processes must enable stdin")
+  assert.match(qml, /write\(pendingInput\)/)
+
+  // Command builders carry user-typed values in their input, not in argv.
+  const SearchCommand = require(path.join(root, "SearchCommand.js"))
+  const BoundedFile = require(path.join(root, "BoundedFile.js"))
+  const plans = [
+    SearchCommand.searchCommand("Private notes/secret", "/home/test", 200, 262144),
+    SearchCommand.completionCommand("Private notes/secret", "/home/test", 1, 262144),
+    BoundedFile.writeCommand("/tmp/state.json", '{"version":1,"scope":"Private notes/"}\n', 32)
+  ]
+  for (const plan of plans) {
+    assert.ok(plan.input.includes("Private notes"), plan.command)
+    assert.ok(!JSON.stringify(plan.command).includes("Private notes"), plan.command)
+  }
+})

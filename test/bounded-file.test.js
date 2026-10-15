@@ -7,8 +7,8 @@ const { spawnSync } = require("node:child_process")
 
 const BoundedFile = require("../BoundedFile.js")
 
-function run(command) {
-  return spawnSync(command[0], command.slice(1))
+function run(plan) {
+  return spawnSync(plan.command[0], plan.command.slice(1), { input: plan.input })
 }
 
 test("reads only regular files within the byte limit", t => {
@@ -57,6 +57,16 @@ test("atomic writes replace the state path instead of following a symlink", t =>
   assert.equal(fs.readFileSync(external, "utf8"), "untouched\n")
   assert.equal(fs.lstatSync(state).isSymbolicLink(), false)
   assert.equal(fs.readFileSync(state, "utf8"), "private state\n")
+})
+
+test("keeps the saved scope state off the command line", () => {
+  const plan = BoundedFile.writeCommand("/home/test/.local/state/soufian.open-file/state.json",
+    '{"version":1,"scope":"Private notes/"}\n', 32)
+
+  // The state text is user-typed content: it must travel over standard input.
+  assert.ok(plan.input.includes("Private notes"))
+  for (const arg of plan.command)
+    assert.ok(!arg.includes("Private notes"), arg)
 })
 
 test("prepares a private state directory but rejects a directory symlink", t => {

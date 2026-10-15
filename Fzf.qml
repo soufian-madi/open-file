@@ -155,10 +155,11 @@ Item {
 
   function flushScopeState() {
     if (root.pendingScopeState === "" || stateWriteProc.running) return
-    stateWriteProc.payload = root.pendingScopeState
+    var plan = BoundedFile.writeCommand(root.statePath, root.pendingScopeState, root.maxStateBytes)
     root.pendingScopeState = ""
-    stateWriteProc.command = BoundedFile.writeCommand(
-      root.statePath, stateWriteProc.payload, root.maxStateBytes)
+    // The state text is user-typed: it goes to the subprocess over stdin.
+    stateWriteProc.pendingInput = plan.input
+    stateWriteProc.command = plan.command
     stateWriteProc.running = true
   }
 
@@ -203,9 +204,11 @@ Item {
     // Set pendingGen only after exec(): stopping the previous process may
     // flush its collector synchronously, and that stale output must still
     // fail the generation check.
+    var plan = SearchCommand.searchCommand(
+      query, root.dirs[root.activeIndex].path, root.maxResults, root.maxSearchOutputBytes)
     searchProc.errorText = ""
-    searchProc.exec(SearchCommand.searchCommand(
-      query, root.dirs[root.activeIndex].path, root.maxResults, root.maxSearchOutputBytes))
+    searchProc.pendingInput = plan.input
+    searchProc.exec(plan.command)
     searchProc.pendingGen = root.searchGen
   }
 
@@ -262,14 +265,22 @@ Item {
   function completeDirectory() {
     var field = fieldsRepeater.itemAt(0)
     if (!field || completionProc.running) return
+    var plan = SearchCommand.completionCommand(
+      field.text, root.dirs[0].path, 1, root.maxSearchOutputBytes)
     completionProc.query = field.text
-    completionProc.exec(SearchCommand.completionCommand(
-      field.text, root.dirs[0].path, 1, root.maxSearchOutputBytes))
+    completionProc.pendingInput = plan.input
+    completionProc.exec(plan.command)
   }
 
   Process {
     id: completionProc
     property string query: ""
+    property string pendingInput: ""
+    stdinEnabled: true
+    onStarted: {
+      write(pendingInput)
+      pendingInput = ""
+    }
     stdout: StdioCollector { id: completionOutput; waitForEnd: true }
     onExited: function(exitCode) {
       var field = fieldsRepeater.itemAt(0)
@@ -283,7 +294,7 @@ Item {
 
   Process {
     id: scopeReadProc
-    command: BoundedFile.readCommand(root.statePath, root.maxStateBytes)
+    command: BoundedFile.readCommand(root.statePath, root.maxStateBytes).command
     stdout: StdioCollector { id: scopeReadStdout; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode === 0) root.loadScope(scopeReadStdout.text)
@@ -297,7 +308,7 @@ Item {
 
   Process {
     id: stateDirProc
-    command: BoundedFile.prepareDirectoryCommand(root.stateDir)
+    command: BoundedFile.prepareDirectoryCommand(root.stateDir).command
     running: false
     onExited: function(exitCode) {
       if (exitCode === 0) {
@@ -311,15 +322,19 @@ Item {
 
   Process {
     id: stateWriteProc
-    property string payload: ""
+    property string pendingInput: ""
+    stdinEnabled: true
     running: false
+    onStarted: {
+      write(pendingInput)
+      pendingInput = ""
+    }
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         console.warn("soufian.open-file: state write failed with exit", exitCode)
         // Let a later scope change retry the same state without immediately spinning.
         root.lastScope = ""
       }
-      stateWriteProc.payload = ""
       root.flushScopeState()
     }
   }
@@ -334,6 +349,12 @@ Item {
     id: searchProc
     property int pendingGen: 0
     property string errorText: ""
+    property string pendingInput: ""
+    stdinEnabled: true
+    onStarted: {
+      write(pendingInput)
+      pendingInput = ""
+    }
     stdout: StdioCollector {
       id: searchStdout
       waitForEnd: true

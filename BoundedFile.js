@@ -1,5 +1,10 @@
 // Builds commands for bounded file reads and checked atomic writes. The byte
 // limits are enforced by the subprocess before data reaches a QML collector.
+//
+// Every builder returns { command, input } like SearchCommand: the saved scope
+// state is user-typed content and travels over standard input, because
+// arguments are world-readable through /proc/<pid>/cmdline while a command
+// runs. Only file paths and byte limits are placed on the command line.
 
 var readScript =
   "export LC_ALL=C\n" +
@@ -13,9 +18,9 @@ var readScript =
 
 var writeScript =
   "export LC_ALL=C\n" +
+  "IFS= read -r -d '' payload || exit 64\n" +
   "target=$1\n" +
-  "payload=$2\n" +
-  "limit=$3\n" +
+  "limit=$2\n" +
   "[[ $limit =~ ^[1-9][0-9]*$ ]] || exit 64\n" +
   "(( ${#payload} <= limit )) || exit 65\n" +
   "directory=${target%/*}\n" +
@@ -45,15 +50,25 @@ function normalizedLimit(maxBytes) {
 }
 
 function readCommand(path, maxBytes) {
-  return ["bash", "-c", readScript, "bash", String(path), String(normalizedLimit(maxBytes))]
+  return {
+    command: ["bash", "-c", readScript, "bash", String(path), String(normalizedLimit(maxBytes))],
+    input: ""
+  }
 }
 
 function writeCommand(path, text, maxBytes) {
-  return ["bash", "-c", writeScript, "bash", String(path), String(text), String(normalizedLimit(maxBytes))]
+  return {
+    command: ["bash", "-c", writeScript, "bash", String(path), String(normalizedLimit(maxBytes))],
+    // One NUL-terminated record; NUL is the only byte that cannot travel.
+    input: String(text).replace(/\0/g, "") + "\0"
+  }
 }
 
 function prepareDirectoryCommand(path) {
-  return ["bash", "-c", prepareDirectoryScript, "bash", String(path)]
+  return {
+    command: ["bash", "-c", prepareDirectoryScript, "bash", String(path)],
+    input: ""
+  }
 }
 
 if (typeof module !== "undefined") {

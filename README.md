@@ -103,7 +103,7 @@ After a 150 ms typing debounce, the overlay runs
 fd --type f --type d --hidden --no-ignore-vcs --exclude .git --exclude .cache …
 ```
 
-directly into `fzf --scheme=path --filter=<query>` in the current scope.
+directly into `fzf --scheme=path` in the current scope.
 There is no blocking cache-building pass or per-path Bash indexing loop;
 results use fzf's
 path-oriented ranking. Hidden entries are included and VCS ignore rules are
@@ -111,6 +111,14 @@ disabled, minus the excluded directories listed above. `Tab` completion runs
 its own shallow `fd`/`fzf` pass over the immediate subfolders. User fzf
 options are cleared so they cannot change the output protocol. Search output
 is byte-limited before entering QML collectors and capped at 200 results.
+
+Typed queries and folder scopes never appear on a command line. `/proc/<pid>/cmdline`
+is world-readable on Linux, which would expose searches to other local users
+while they run, so the query and scope reach the search script over standard
+input and fzf receives the query as a quoted `--filter` option read from an
+inherited file descriptor. The saved folder scope is written to the state file
+the same way. Nothing you type is passed as an argument or an environment
+variable to any subprocess.
 
 ## Development
 
