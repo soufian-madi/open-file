@@ -40,6 +40,12 @@ var prepareDirectoryScript =
   "  [[ -d $directory ]] || exit 73\n" +
   "  chmod 700 -- \"$directory\" || exit 73\n" +
   "else\n" +
+  // A fresh account may not have $XDG_STATE_HOME yet. Missing parents are
+  // created owner-only; the state directory itself is still checked below.
+  "  parent=${directory%/*}\n" +
+  "  if [[ -n $parent && ! -e $parent ]]; then\n" +
+  "    (umask 077 && mkdir -p -- \"$parent\") || exit 73\n" +
+  "  fi\n" +
   "  mkdir -m 700 -- \"$directory\" || exit 73\n" +
   "fi\n" +
   "[[ -d $directory && ! -L $directory ]] || exit 73"

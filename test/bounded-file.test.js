@@ -88,3 +88,15 @@ test("prepares a private state directory but rejects a directory symlink", t => 
   assert.equal(fs.statSync(external).mode & 0o777, 0o755)
   assert.equal(run(BoundedFile.writeCommand(path.join(directory, "state.json"), "state", 32)).status, 66)
 })
+
+test("prepares the state directory when $XDG_STATE_HOME does not exist yet", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "open-file-state-"))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  const stateHome = path.join(home, ".local", "state")
+  const directory = path.join(stateHome, "soufian.open-file")
+
+  const created = run(BoundedFile.prepareDirectoryCommand(directory))
+  assert.equal(created.status, 0, created.stderr.toString())
+  assert.equal(fs.statSync(directory).mode & 0o777, 0o700)
+  assert.equal(fs.statSync(stateHome).mode & 0o077, 0)
+})
