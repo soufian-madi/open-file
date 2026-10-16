@@ -36,6 +36,8 @@ you last searched.
 omarchy plugin add https://github.com/soufian-madi/open-file.git --enable
 ```
 
+Also listed in the [Omarchy plugin marketplace](https://omarchyplugins.com/plugin.html?id=soufian.open-file).
+
 ## Remove
 
 ```bash
