@@ -28,8 +28,8 @@ function resultPaths(stdout) {
 
 test("searches files and folders with hidden entries but without excluded directories", t => {
   const home = makeHome(t)
-  fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
-  fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
+  fs.mkdirSync(path.join(home, "Documents", "Tax papers"), { recursive: true })
+  fs.writeFileSync(path.join(home, "Documents", "Tax papers", "report.md"), "")
   fs.writeFileSync(path.join(home, ".hidden.txt"), "")
   fs.mkdirSync(path.join(home, "node_modules", "pkg"), { recursive: true })
   fs.writeFileSync(path.join(home, "node_modules", "pkg", "index.js"), "")
@@ -40,9 +40,9 @@ test("searches files and folders with hidden entries but without excluded direct
   const result = search("", home)
   assert.equal(result.status, 0, result.stderr.toString())
   const entries = resultPaths(result.stdout)
-  assert.ok(entries.includes("Adulting/"))
-  assert.ok(entries.includes("Adulting/Tax papers/"))
-  assert.ok(entries.includes("Adulting/Tax papers/report.md"))
+  assert.ok(entries.includes("Documents/"))
+  assert.ok(entries.includes("Documents/Tax papers/"))
+  assert.ok(entries.includes("Documents/Tax papers/report.md"))
   assert.ok(entries.includes(".hidden.txt"))
   for (const entry of entries) {
     assert.ok(!entry.includes("node_modules"), entry)
@@ -53,26 +53,26 @@ test("searches files and folders with hidden entries but without excluded direct
 
 test("searches completed scopes and prepends them to results", t => {
   const home = makeHome(t)
-  fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
-  fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
-  fs.writeFileSync(path.join(home, "Adulting", "notes.md"), "")
+  fs.mkdirSync(path.join(home, "Documents", "Tax papers"), { recursive: true })
+  fs.writeFileSync(path.join(home, "Documents", "Tax papers", "report.md"), "")
+  fs.writeFileSync(path.join(home, "Documents", "notes.md"), "")
   fs.writeFileSync(path.join(home, "outside-report.md"), "")
-  const result = search("Adulting/rep", home)
+  const result = search("Documents/rep", home)
 
   assert.equal(result.status, 0, result.stderr.toString())
-  assert.deepEqual(resultPaths(result.stdout), ["Adulting/Tax papers/report.md"])
+  assert.deepEqual(resultPaths(result.stdout), ["Documents/Tax papers/report.md"])
 })
 
 test("lists the whole scope for an empty remainder query", t => {
   const home = makeHome(t)
-  fs.mkdirSync(path.join(home, "Adulting", "Tax papers"), { recursive: true })
-  fs.writeFileSync(path.join(home, "Adulting", "Tax papers", "report.md"), "")
-  fs.writeFileSync(path.join(home, "Adulting", "notes.md"), "")
-  const result = search("Adulting/", home)
+  fs.mkdirSync(path.join(home, "Documents", "Tax papers"), { recursive: true })
+  fs.writeFileSync(path.join(home, "Documents", "Tax papers", "report.md"), "")
+  fs.writeFileSync(path.join(home, "Documents", "notes.md"), "")
+  const result = search("Documents/", home)
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.deepEqual(new Set(resultPaths(result.stdout)), new Set([
-    "Adulting/Tax papers/", "Adulting/Tax papers/report.md", "Adulting/notes.md"
+    "Documents/Tax papers/", "Documents/Tax papers/report.md", "Documents/notes.md"
   ]))
 })
 

@@ -5,7 +5,7 @@ const ScopeState = require("../ScopeState.js")
 test("round-trips the remembered folder scope", () => {
   assert.equal(ScopeState.parse(ScopeState.serialize("Projects/open-file/")), "Projects/open-file/")
   assert.equal(ScopeState.parse(ScopeState.serialize("")), "")
-  assert.equal(ScopeState.parse(ScopeState.serialize("Adulting/Tax papers/")), "Adulting/Tax papers/")
+  assert.equal(ScopeState.parse(ScopeState.serialize("Documents/Tax papers/")), "Documents/Tax papers/")
 })
 
 test("treats the empty scope as the home root", () => {

@@ -3,32 +3,16 @@
 A Quickshell overlay for [Omarchy](https://omarchy.org/) that fuzzy-finds
 files and folders anywhere in your home directory and opens them.
 
-> **Based on** [sgruendel/omarchy-fzf](https://github.com/sgruendel/omarchy-fzf)
-> by Stefan Gründel. That plugin searches the XDG user directories; this fork
-> searches the whole home directory, completes folder paths with `Tab`, and
-> opens files through their MIME association (Neovim handlers run in a foot
-> terminal).
-
 ## What it does
 
-The overlay shows a single **Home** field. As soon as you type, matching files
-and folders from your home directory appear below, ranked by fzf. Hidden
-entries are included, but noisy directories are excluded (`.git`, `.cache`,
-`node_modules`, `.npm`, `.steam`, `.gradle`, `.cua-driver`, Steam data, and the
-Trash). Selecting an entry opens it with its default application.
+Type into a single **Home** field and files and folders from anywhere in your
+home directory appear, ranked by fzf. Hidden entries are included; noisy
+directories (`.git`, `.cache`, `node_modules`, Steam data, the Trash, …) are
+excluded. `Enter` opens the selection with its default application.
 
-`Tab` completes the best fuzzy-matching immediate child folder — `adult` finds
-`Adulting/` — and keeps completing subfolders as you go. A completed folder
-prefix narrows the search to that folder while results keep showing
-home-relative paths. Reopening the overlay lands you back in the folder scope
+`Tab` completes the best fuzzy-matching subfolder (`docu` finds `Documents/`)
+and narrows the search to it. Reopening the overlay returns you to the folder
 you last searched.
-
-## Requirements
-
-- Omarchy 4.0.4+ with the Quickshell plugin API
-- [`fzf`](https://github.com/junegunn/fzf)
-- [`fd`](https://github.com/sharkdp/fd)
-- `xdg-open` and `xdg-mime` (`xdg-utils`)
 
 ## Install
 
