@@ -37,6 +37,9 @@ Item {
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
   readonly property string stateDir: stateHome + "/soufian.open-file"
   readonly property string statePath: stateDir + "/state.json"
+  // Freedesktop thumbnail cache; the spec ignores a relative XDG_CACHE_HOME.
+  readonly property string cacheHome: /^\//.test(Quickshell.env("XDG_CACHE_HOME") || "")
+    ? Quickshell.env("XDG_CACHE_HOME") : Quickshell.env("HOME") + "/.cache"
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -53,9 +56,23 @@ Item {
   property int fieldHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int shortcutHeight: Math.max(Style.space(34), Style.font.caption + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
-  property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
+  // The card widens to hold a preview pane beside the results when the
+  // screen has room for both; otherwise it keeps the single-column layout.
+  readonly property int listCardWidth: Style.space(560)
+  readonly property int previewCardWidth: Style.space(900)
+  readonly property int previewMinWidth: Style.space(260)
+  readonly property bool showPreview: panel.width - Style.gapsOut * 2 >= listCardWidth + previewMinWidth
+  property int cardWidth: Math.min(showPreview ? previewCardWidth : listCardWidth, panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(500), panel.height - Style.gapsOut * 2)
   property int maxResults: 200
+  // Absolute path shown in the preview pane; "" when nothing is selected.
+  property string previewPath: ""
+  readonly property int previewDelay: 80
+
+  onSelectedIndexChanged: root.schedulePreview()
+  onActiveIndexChanged: root.schedulePreview()
+  onOpenedChanged: root.schedulePreview()
+  onShowPreviewChanged: root.schedulePreview()
 
   Component.onCompleted: {
     root.loadHome()
@@ -262,6 +279,28 @@ Item {
     Quickshell.execDetached(OpenCommand.command(fullPath))
   }
 
+  // The preview follows the selection after a short pause, so holding a
+  // navigation key does not decode every image it passes. It clears at once
+  // when there is nothing to show.
+  function schedulePreview() {
+    if (!root.opened || !root.showPreview || root.activeIndex < 0 || resultModel.count === 0) {
+      previewDebounce.stop()
+      root.previewPath = ""
+      return
+    }
+    previewDebounce.restart()
+  }
+
+  function updatePreview() {
+    var index = root.selectedIndex
+    if (!root.opened || !root.showPreview || root.activeIndex < 0 || root.activeIndex >= root.dirs.length
+        || index < 0 || index >= resultModel.count) {
+      root.previewPath = ""
+      return
+    }
+    root.previewPath = root.dirs[root.activeIndex].path + "/" + resultModel.get(index).path
+  }
+
   function completeDirectory() {
     var field = fieldsRepeater.itemAt(0)
     if (!field || completionProc.running) return
@@ -290,7 +329,16 @@ Item {
     }
   }
 
-  ListModel { id: resultModel }
+  ListModel {
+    id: resultModel
+    onCountChanged: root.schedulePreview()
+  }
+
+  Timer {
+    id: previewDebounce
+    interval: root.previewDelay
+    onTriggered: root.updatePreview()
+  }
 
   Process {
     id: scopeReadProc
@@ -526,7 +574,8 @@ Item {
           anchors.top: fieldsColumn.bottom
           anchors.topMargin: root.contentSpacing
           anchors.left: parent.left
-          anchors.right: parent.right
+          anchors.right: previewPane.visible ? previewPane.left : parent.right
+          anchors.rightMargin: previewPane.visible ? Style.spacing.xxl : 0
           anchors.bottom: shortcuts.top
           anchors.bottomMargin: root.contentSpacing
           visible: root.activeIndex !== -1
@@ -589,6 +638,22 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
           }
+        }
+
+        PreviewPane {
+          id: previewPane
+          anchors.top: fieldsColumn.bottom
+          anchors.topMargin: root.contentSpacing
+          anchors.right: parent.right
+          anchors.bottom: shortcuts.top
+          anchors.bottomMargin: root.contentSpacing
+          width: Math.max(root.previewMinWidth, Math.round(parent.width * 0.4))
+          visible: root.showPreview && root.activeIndex !== -1
+          path: root.previewPath
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          cornerRadius: root.cornerRadius
+          thumbnailRoot: root.cacheHome + "/thumbnails"
         }
 
         Item {

@@ -14,6 +14,10 @@ excluded. `Enter` opens the selection with its default application.
 and narrows the search to it. Reopening the overlay returns you to the folder
 you last searched.
 
+When the screen is wide enough, a preview pane next to the results shows the
+selected image. Folders and other files show their name and type. On narrower
+screens the overlay keeps its single-column layout.
+
 ## Install
 
 ```bash
@@ -68,6 +72,24 @@ Files open through their MIME association (`xdg-mime query filetype` /
 `query default`). Handlers mapped to `nvim.desktop` or `neovim.desktop` launch
 `foot nvim -- <path>`, since `xdg-open` does not reliably start `Terminal=true`
 handlers in this session. Everything else opens with `xdg-open`.
+
+## Previews
+
+The preview follows the selection after a short pause, so holding an arrow
+key doesn't decode every image you pass. It never takes keyboard focus.
+Images are decoded in the background and scaled to the pane, so a large
+photo never stays in memory at full resolution. Supported
+formats are the ones Qt reads here: PNG, JPEG, GIF, WebP, SVG, BMP, TIFF, ICO,
+ICNS and the PBM/PGM/PPM/XBM/XPM family. Small images are enlarged by a whole
+factor without smoothing, so pixel art stays crisp. GIF and WebP animations
+play only up to 0.5 megapixels. Qt decodes animation frames on the UI thread,
+so larger animations show their first frame instead. The preview never starts
+a subprocess.
+
+PDFs and videos show a thumbnail when your desktop already made one, in
+`${XDG_CACHE_HOME:-~/.cache}/thumbnails`, for example after you browsed the
+folder in a file manager. The overlay never generates thumbnails. Without one,
+the pane shows the file's name and type.
 
 ## State
 
