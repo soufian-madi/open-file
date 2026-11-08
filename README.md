@@ -15,7 +15,8 @@ and narrows the search to it. Reopening the overlay returns you to the folder
 you last searched.
 
 When the screen is wide enough, a preview pane next to the results shows the
-selected image. Folders and other files show their name and type. On narrower
+selected image, or the first lines of a text file the way Omarchy's `ff`
+shows them. Folders and other files show their name and type. On narrower
 screens the overlay keeps its single-column layout.
 
 ## Install
@@ -83,8 +84,26 @@ formats are the ones Qt reads here: PNG, JPEG, GIF, WebP, SVG, BMP, TIFF, ICO,
 ICNS and the PBM/PGM/PPM/XBM/XPM family. Small images are enlarged by a whole
 factor without smoothing, so pixel art stays crisp. GIF and WebP animations
 play only up to 0.5 megapixels. Qt decodes animation frames on the UI thread,
-so larger animations show their first frame instead. The preview never starts
-a subprocess.
+so larger animations show their first frame instead. Images never start a
+subprocess.
+
+Text files look like Omarchy's `ff` preview (`bat` with `BAT_THEME=ansi`): a
+dim line-number gutter, then the first screenful of lines in your theme's
+terminal colors, so they follow theme switches. Long lines are clipped, not
+wrapped. The overlay runs `bat` itself, at most one process at a time and only
+after the selection pause. A process for a selection you have moved past is
+stopped and its output ignored. `file` must report a text encoding first, so
+binaries, empty files and UTF-16 files show the placeholder, as do files that
+can't be read or take longer than a couple of seconds. The process reads at
+most 64 KiB of the file, keeps only the lines that fit (512 bytes of each),
+runs under `timeout`, and its output is capped at 128 KiB, so a huge log or a
+minified one-line bundle costs no more than a short file. Control characters
+in the file, including its own color codes, show as `�` and are never
+interpreted. Your `bat` config and `BAT_*` variables are ignored, so they can't
+change the format. The file's path reaches the process over standard input,
+and its name reaches `bat` through a file descriptor (bat picks the syntax by
+name). Neither appears on a command line. The terminal palette is read once
+per open with `omarchy-theme-color --all`.
 
 PDFs and videos show a thumbnail when your desktop already made one, in
 `${XDG_CACHE_HOME:-~/.cache}/thumbnails`, for example after you browsed the
