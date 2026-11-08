@@ -72,6 +72,10 @@ at a scratch directory that holds stubs:
 - `qs/Commons/qmldir` declaring `singleton Style` and `singleton Color`.
   Implement only the tokens the file reads: `Style.space()`, `Style.duration()`,
   `spacing.*`, `font.*`, `normalFillAlpha`, `cornerRadius`, `Color.menu.text`.
+  **Trap (Qt 6.12 `qml6`):** a stub singleton named `Color` resolves to
+  undefined, so `Color.menu.text` throws even though `Style` works. Set
+  `foreground` and other colors explicitly on the component under test, so
+  the stub defaults are never read.
 - `Quickshell/Widgets/ClippingRectangle.qml` as a plain `Rectangle { clip: true }`.
   Quickshell's C++ plugins exist only inside the quickshell binary.
 
@@ -104,6 +108,20 @@ The harness covers:
   - With `autoTransform`, the bound applies before EXIF rotation.
   - `implicitWidth` is in physical pixels.
   - `Image.frameCount` arrives *after* `status === Ready`.
+- **Quickshell `Process` reports a killed process's exit late.** After
+  `running = false` and an immediate `exec()`, the old process's `exited` fires
+  *after* you set the new `pendingGen`, carrying the old process's output. The
+  new process starts only after that. Stamp the generation in `onStarted`
+  (`startedGen = pendingGen`) and check that in `onExited`; see
+  `textPreviewProc`. `searchProc` gets away with `pendingGen` only because a
+  debounce separates its kill from the next `exec()`. Probe `Process` and other
+  Quickshell-only types headless with `qs -p probe.qml` (root `ShellRoot`), since
+  `qml6` can't load `Quickshell.Io`.
+- **Many `Text` items are expensive to create:** about 0.15–0.25 ms each. A
+  screenful of about 200 created at once blocked the GUI thread for 27–48 ms.
+  Build such blocks in a `Loader { asynchronous: true }`; Repeaters inside it
+  inherit the incubation (`AsynchronousIfNested`) and the work spreads over
+  frames. See `textLoader` in `PreviewPane.qml`.
 - `FolderListModel` (`Qt.labs.folderlistmodel`) lists directories in-process
   and asynchronously. A missing folder reports `Ready` with 0 entries. This is
   the way to check whether files exist without a subprocess or failed-load
@@ -148,6 +166,20 @@ The harness covers:
 - Performance claims need a baseline. Run the same scripted test on `main`
   (`git stash -u`, restart the shell, test, `git stash pop`, restart again) and
   compare.
+- **Live stall probe.** The headless harness uses Qt's software renderer, so
+  real numbers have to come from the shell. Apply a temporary, never-committed
+  patch to `Fzf.qml` (keep it as a script so `main` gets the identical patch):
+  - a 1 ms repeating `Timer`, running while `root.opened`, that appends tick
+    gaps to an array;
+  - recording armed on the first `select()` and disarmed in `onQueryChanged`,
+    so overlay loading and typing are excluded;
+  - on close, the timer logs p50/p99/p999/max with `console.warn`; read it with
+    `qs log --id <id> | grep <marker>`.
+  Drive it with one `wtype` call per session, at more than 80 ms per key so
+  every selection gets previewed, and at about 30 ms per key for fast
+  scrolling. On real hardware the idle baseline is about 4 ms max, and a frame
+  with an animation running is about 17 ms. Warm up first: the first CJK or emoji
+  glyphs cost a one-time font-fallback load of 40–60 ms.
 
 ### Clean up what testing changes
 
