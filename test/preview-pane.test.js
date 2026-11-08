@@ -56,6 +56,24 @@ test("hands animations the still's exact size and gates them on a pixel budget",
   assert.match(pane, /readonly property bool multiFrame: kind === "animated" && stillOk && still\.frameCount > 1/)
 })
 
+test("builds the text preview asynchronously from plain-text runs", () => {
+  // The Loader incubates the block over frames; nested Repeaters inherit that.
+  assert.match(pane, /Loader \{\n\s*id: textLoader\n\s*anchors\.fill: parent\n\s*active: pane\.textShown\n\s*asynchronous: true\n/)
+  assert.match(pane, /^\s*model: pane\.textLines$/m)
+  assert.match(pane, /^\s*model: codeLine\.modelData$/m)
+  // Runs are colored from the theme palette; nothing is ever markup.
+  assert.match(pane, /^\s*color: pane\.runColor\(modelData\.color\)$/m)
+  assert.match(pane, /^\s*text: modelData\.text$/m)
+  assert.doesNotMatch(pane + fzf, /StyledText|RichText|MarkdownText|AutoText/)
+  // The whole block clips: lines never wrap or spill over the caption.
+  assert.match(pane, /sourceComponent: Item \{\n\s*id: textBlock\n\s*clip: true\n/)
+  assert.doesNotMatch(pane, /wrapMode/)
+  // Not-yet-answered text shows nothing; answered-but-empty shows the placeholder.
+  assert.match(pane, /readonly property bool textAnswered: textKind && textPath === path && textDone/)
+  assert.match(pane, /readonly property bool textShown: textAnswered && textLines\.length > 0/)
+  assert.match(pane, /readonly property bool failed: path !== "" && !thumbnailPending && !textPending && !textShown/)
+})
+
 test("keeps the preview purely visual: no input, focus or subprocesses", () => {
   for (const pattern of [/\bMouseArea\b/, /\bTextInput\b/, /\bTextEdit\b/, /\bKeys\./, /forceActiveFocus/,
     /^\s*focus: true/m, /activeFocusOnTab: true/, /\bProcess\b/, /execDetached/, /\bFileView\b/]) {
@@ -80,7 +98,10 @@ function previewHarness(state) {
   const context = {
     root: Object.assign({
       opened: true, showPreview: true, activeIndex: 0, selectedIndex: 0,
-      dirs: [{ path: "/home/test" }], previewPath: "stale"
+      dirs: [{ path: "/home/test" }], previewPath: "stale",
+      // Records the path the text preview was refreshed for.
+      textRefreshes: [],
+      refreshTextPreview() { this.textRefreshes.push(this.previewPath) }
     }, state.root),
     resultModel: {
       count: state.paths.length,
@@ -102,8 +123,11 @@ test("debounces the preview while there is a selection", () => {
   vm.runInContext("schedulePreview()", context)
   assert.deepEqual(events, ["restart"])
   assert.equal(context.root.previewPath, "stale")
+  // The text preview starts only from the debounced update, never per key.
+  assert.deepEqual(context.root.textRefreshes, [])
   vm.runInContext("updatePreview()", context)
   assert.equal(context.root.previewPath, "/home/test/Pictures/a b.png")
+  assert.deepEqual(context.root.textRefreshes, ["/home/test/Pictures/a b.png"])
 })
 
 test("clears the preview at once when there is nothing to show", () => {
@@ -118,10 +142,13 @@ test("clears the preview at once when there is nothing to show", () => {
     vm.runInContext("schedulePreview()", context)
     assert.deepEqual(events, ["stop"], JSON.stringify(state))
     assert.equal(context.root.previewPath, "", JSON.stringify(state))
+    // Clearing also stops a running text preview at once.
+    assert.deepEqual(context.root.textRefreshes, [""], JSON.stringify(state))
   }
   const { context } = previewHarness({ paths: ["a.png"], root: { selectedIndex: 3 } })
   vm.runInContext("updatePreview()", context)
   assert.equal(context.root.previewPath, "")
+  assert.deepEqual(context.root.textRefreshes, [""])
 })
 
 test("follows selection, results, scope and visibility changes", () => {

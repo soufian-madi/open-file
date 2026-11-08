@@ -35,17 +35,20 @@ test("delivers typed input to subprocesses over stdin, never as arguments", () =
   // Every process fed a command plan — search, completion, state write — must
   // accept stdin and deliver the plan's input when it starts.
   const stdinProcesses = qml.match(/stdinEnabled: true/g) || []
-  assert.ok(stdinProcesses.length >= 3,
-    "search, completion and state write processes must enable stdin")
+  assert.ok(stdinProcesses.length >= 4,
+    "search, completion, state write and text preview processes must enable stdin")
   assert.match(qml, /write\(pendingInput\)/)
 
   // Command builders carry user-typed values in their input, not in argv.
+  // The text preview's path comes from a typed search, so it counts too.
   const SearchCommand = require(path.join(root, "SearchCommand.js"))
   const BoundedFile = require(path.join(root, "BoundedFile.js"))
+  const TextPreview = require(path.join(root, "TextPreview.js"))
   const plans = [
     SearchCommand.searchCommand("Private notes/secret", "/home/test", 200, 262144),
     SearchCommand.completionCommand("Private notes/secret", "/home/test", 1, 262144),
-    BoundedFile.writeCommand("/tmp/state.json", '{"version":1,"scope":"Private notes/"}\n', 32)
+    BoundedFile.writeCommand("/tmp/state.json", '{"version":1,"scope":"Private notes/"}\n', 32),
+    TextPreview.previewCommand("/home/test/Private notes/secret.md", { maxLines: 30 })
   ]
   for (const plan of plans) {
     assert.ok(plan.input.includes("Private notes"), plan.command)

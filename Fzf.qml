@@ -8,6 +8,9 @@ import "BoundedFile.js" as BoundedFile
 import "ScopeState.js" as ScopeState
 import "SearchCommand.js" as SearchCommand
 import "OpenCommand.js" as OpenCommand
+import "PreviewKind.js" as PreviewKind
+import "TextPreview.js" as TextPreview
+import "AnsiText.js" as AnsiText
 
 Item {
   id: root
@@ -68,6 +71,20 @@ Item {
   // Absolute path shown in the preview pane; "" when nothing is selected.
   property string previewPath: ""
   readonly property int previewDelay: 80
+  // Text preview of previewPath, rendered by bat in textPreviewProc: styled
+  // lines (AnsiText.parse) for textPreviewPath, and whether that answer is
+  // in. Done with no lines means "not text"; the pane keeps its placeholder.
+  property string textPreviewPath: ""
+  property var textPreviewLines: []
+  property bool textPreviewDone: false
+  property int textPreviewGen: 0
+  // Kills a preview that has not answered by then; the script's own limits
+  // (TextPreview.js) normally end it long before.
+  readonly property int textPreviewTimeout: 2500
+  readonly property int maxTextPreviewOutputBytes: 131072
+  // The theme's 16 terminal colors in ANSI order, read on every open.
+  property var terminalColors: []
+  readonly property int maxPaletteBytes: 16384
 
   onSelectedIndexChanged: root.schedulePreview()
   onActiveIndexChanged: root.schedulePreview()
@@ -104,6 +121,8 @@ Item {
     root.restoring = false
     root.opened = true
     root.focusField()
+    // The theme may have changed since the last open.
+    if (!paletteProc.running) paletteProc.running = true
   }
 
   function close() {
@@ -286,6 +305,7 @@ Item {
     if (!root.opened || !root.showPreview || root.activeIndex < 0 || resultModel.count === 0) {
       previewDebounce.stop()
       root.previewPath = ""
+      root.refreshTextPreview()
       return
     }
     previewDebounce.restart()
@@ -296,9 +316,59 @@ Item {
     if (!root.opened || !root.showPreview || root.activeIndex < 0 || root.activeIndex >= root.dirs.length
         || index < 0 || index >= resultModel.count) {
       root.previewPath = ""
+      root.refreshTextPreview()
       return
     }
     root.previewPath = root.dirs[root.activeIndex].path + "/" + resultModel.get(index).path
+    root.refreshTextPreview()
+  }
+
+  // Starts the text preview for previewPath, at most one process at a time
+  // and only from the debounced updatePreview (or to cancel). A selection
+  // that lands back on the path already shown, as when typing refines the
+  // query, reuses that answer.
+  function refreshTextPreview() {
+    var path = root.previewPath
+    if (path !== "" && path === root.textPreviewPath) return
+    // Invalidate first: the killed process reports its exit only after the
+    // next one was requested (see textPreviewProc), so its output must
+    // already fail the generation check.
+    root.textPreviewGen++
+    textPreviewWatchdog.stop()
+    if (textPreviewProc.running) textPreviewProc.running = false
+    root.textPreviewPath = path
+    root.textPreviewLines = []
+    root.textPreviewDone = false
+    if (path === "" || !PreviewKind.isTextCandidate(path)) {
+      root.textPreviewDone = true
+      return
+    }
+    var plan = TextPreview.previewCommand(path, {
+      maxLines: previewPane.textLineCapacity,
+      maxOutputBytes: root.maxTextPreviewOutputBytes
+    })
+    // The path comes from a typed search: it goes to the subprocess over
+    // stdin, like the query.
+    textPreviewProc.pendingInput = plan.input
+    textPreviewProc.exec(plan.command)
+    textPreviewProc.pendingGen = root.textPreviewGen
+    textPreviewWatchdog.restart()
+  }
+
+  function finishTextPreview(gen, exitCode, raw) {
+    if (gen !== root.textPreviewGen) return
+    textPreviewWatchdog.stop()
+    root.textPreviewLines = exitCode === 0
+      ? AnsiText.parse(raw, { maxLines: previewPane.textLineCapacity, maxColumns: previewPane.textColumnCapacity })
+      : []
+    root.textPreviewDone = true
+  }
+
+  function abandonTextPreview() {
+    root.textPreviewGen++
+    if (textPreviewProc.running) textPreviewProc.running = false
+    root.textPreviewLines = []
+    root.textPreviewDone = true
   }
 
   function completeDirectory() {
@@ -418,6 +488,47 @@ Item {
     }
     onExited: function(exitCode) {
       root.finishSearch(searchProc.pendingGen, exitCode, searchStdout.text, searchProc.errorText)
+    }
+  }
+
+  // Renders the selected text file's first screenful (TextPreview.js). When
+  // a process is stopped and exec() is called at once, Quickshell starts the
+  // new one only after the old one exited, and that old exit is reported
+  // after pendingGen already holds the new generation. The generation is
+  // therefore stamped when a process actually starts: an exit always carries
+  // the generation of the process that produced it.
+  Process {
+    id: textPreviewProc
+    property int pendingGen: 0
+    property int startedGen: 0
+    property string pendingInput: ""
+    stdinEnabled: true
+    onStarted: {
+      startedGen = pendingGen
+      write(pendingInput)
+      pendingInput = ""
+    }
+    stdout: StdioCollector {
+      id: textPreviewStdout
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      root.finishTextPreview(textPreviewProc.startedGen, exitCode, textPreviewStdout.text)
+    }
+  }
+
+  Timer {
+    id: textPreviewWatchdog
+    interval: root.textPreviewTimeout
+    onTriggered: root.abandonTextPreview()
+  }
+
+  Process {
+    id: paletteProc
+    command: TextPreview.paletteCommand(root.maxPaletteBytes).command
+    stdout: StdioCollector { id: paletteStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.terminalColors = AnsiText.parsePalette(paletteStdout.text)
     }
   }
 
@@ -650,6 +761,10 @@ Item {
           width: Math.max(root.previewMinWidth, Math.round(parent.width * 0.4))
           visible: root.showPreview && root.activeIndex !== -1
           path: root.previewPath
+          textPath: root.textPreviewPath
+          textLines: root.textPreviewLines
+          textDone: root.textPreviewDone
+          terminalColors: root.terminalColors
           foreground: root.foreground
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius

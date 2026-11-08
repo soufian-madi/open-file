@@ -40,8 +40,15 @@ import "PreviewKind.js" as PreviewKind
 // selected, so a missing thumbnail costs a lookup instead of failed loads.
 // Thumbnails are never generated here.
 //
-// Anything else, or anything that fails to decode, shows a calm
-// placeholder: a file-type glyph plus the name and type.
+// Text files show their first screenful the way Omarchy's `ff` previews them
+// (bat --style=numbers with the ansi theme): a dim line-number gutter, then
+// the lines, colored with the theme's terminal palette. The overlay runs bat
+// and hands over styled runs (AnsiText.js); this pane draws each run with a
+// plain-text item and never runs anything itself. Lines are clipped, never
+// wrapped, and only as many lines and columns as fit are kept.
+//
+// Anything else, or anything that fails to decode or is not text, shows a
+// calm placeholder: a file-type glyph plus the name and type.
 Item {
   id: pane
 
@@ -57,6 +64,49 @@ Item {
   // Largest animation, in source pixels, that is played rather than shown
   // as its first frame. 0.5 MP keeps each GUI-thread frame decode near 12 ms.
   property int maxAnimatedPixels: 500000
+
+  // Text preview, supplied by the overlay: styled lines (AnsiText.parse) for
+  // textPath, and whether that answer is in. No lines means "not text".
+  property string textPath: ""
+  property var textLines: []
+  property bool textDone: false
+  // The theme's 16 terminal colors in ANSI order; "" or missing entries use
+  // the text color.
+  property var terminalColors: []
+
+  readonly property bool textKind: path !== "" && PreviewKind.isTextCandidate(path)
+  readonly property bool textAnswered: textKind && textPath === path && textDone
+  readonly property bool textShown: textAnswered && textLines.length > 0
+  // Waiting for the text: show nothing yet rather than flash the placeholder.
+  readonly property bool textPending: textKind && !textAnswered
+
+  // Code is set like a terminal: the shared monospace family at a size that
+  // leaves room for a useful line length in the narrow pane.
+  readonly property int codeFontSize: Style.font.bodySmall
+  readonly property int lineHeight: Math.max(1, Math.ceil(codeMetrics.height))
+  readonly property real columnWidth: {
+    // advanceWidth() is a call: read the font so a font change re-evaluates.
+    var font = codeMetrics.font
+    return Math.max(1, codeMetrics.advanceWidth("0"))
+  }
+  // How much text fits; the overlay asks for no more than this.
+  readonly property int textLineCapacity: Math.max(1, Math.floor(stage.height / lineHeight))
+  readonly property int textColumnCapacity: Math.max(1, Math.ceil(stage.width / columnWidth))
+  readonly property int gutterDigits: Math.max(2, String(textLines.length).length)
+  readonly property real gutterWidth: Math.ceil(gutterDigits * columnWidth)
+
+  function runColor(color) {
+    if (typeof color === "string" && color !== "") return color
+    if (typeof color === "number" && color >= 0 && color < terminalColors.length && terminalColors[color] !== "")
+      return terminalColors[color]
+    return foreground
+  }
+
+  FontMetrics {
+    id: codeMetrics
+    font.family: Style.font.family
+    font.pixelSize: pane.codeFontSize
+  }
 
   readonly property string kind: path === "" ? "" : PreviewKind.kind(path)
   readonly property bool decodable: PreviewKind.isDecodable(kind)
@@ -94,7 +144,7 @@ Item {
 
   readonly property bool stillOk: still.status === Image.Ready
     && still.implicitWidth > 0 && still.implicitHeight > 0
-  readonly property bool failed: path !== "" && !thumbnailPending
+  readonly property bool failed: path !== "" && !thumbnailPending && !textPending && !textShown
     && (!(decodable || thumbnailKind) || url === ""
     || still.status === Image.Error || probe.status === Image.Error
     || (still.status === Image.Ready && !stillOk))
@@ -288,6 +338,88 @@ Item {
           source: pane.url
           playing: true
           smooth: pane.placedScale < 1
+        }
+      }
+    }
+
+    // The text preview: one row per line, a right-aligned dim number, then
+    // one plain-text item per styled run. Clipped at the stage, never wrapped.
+    //
+    // A screenful is a couple of hundred Text items. Created in one go they
+    // held the GUI thread for 27-48 ms per selection (measured headless), so
+    // every new set of lines builds a fresh block asynchronously: the Loader
+    // incubates it, the Repeaters inside inherit that (AsynchronousIfNested),
+    // and the work is spread over frames instead of stalling typing and
+    // navigation. The block appears, with a short fade, once it is complete.
+    Loader {
+      id: textLoader
+      anchors.fill: parent
+      active: pane.textShown
+      asynchronous: true
+
+      sourceComponent: Item {
+        id: textBlock
+        clip: true
+
+        NumberAnimation on opacity {
+          from: 0
+          to: 1
+          duration: Style.duration(140)
+          easing.type: Easing.OutCubic
+        }
+
+        Column {
+          Repeater {
+            model: pane.textLines
+
+            Item {
+              id: codeLine
+
+              required property int index
+              required property var modelData
+
+              width: textBlock.width
+              height: pane.lineHeight
+
+              Text {
+                width: pane.gutterWidth
+                height: pane.lineHeight
+                text: String(codeLine.index + 1)
+                textFormat: Text.PlainText
+                color: pane.foreground
+                opacity: 0.38
+                font.family: Style.font.family
+                font.pixelSize: pane.codeFontSize
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+              }
+
+              Row {
+                x: pane.gutterWidth + Style.spacing.lg
+                height: pane.lineHeight
+
+                Repeater {
+                  model: codeLine.modelData
+
+                  Text {
+                    required property var modelData
+
+                    height: pane.lineHeight
+                    text: modelData.text
+                    textFormat: Text.PlainText
+                    color: pane.runColor(modelData.color)
+                    opacity: modelData.dim ? 0.58 : 1
+                    font.family: Style.font.family
+                    font.pixelSize: pane.codeFontSize
+                    font.bold: modelData.bold
+                    font.italic: modelData.italic
+                    font.underline: modelData.underline
+                    verticalAlignment: Text.AlignVCenter
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

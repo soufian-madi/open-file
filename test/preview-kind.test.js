@@ -41,6 +41,17 @@ test("classifies documents, videos and everything else for the placeholder", () 
   assert.equal(PreviewKind.kind(""), "file")
 })
 
+test("offers a text preview only for plain files that may be text", () => {
+  for (const path of ["/p/notes.md", "/p/main.rs", "/p/Makefile", "/p/.bashrc", "/p/data.JSON",
+    "/p/server.log", "/p/v1.2 final draft", "/p/a.thisisnotanextension"]) {
+    assert.equal(PreviewKind.isTextCandidate(path), true, path)
+  }
+  for (const path of ["", "/p/Pictures/", "/p/a.png", "/p/a.svg", "/p/a.gif", "/p/a.pdf", "/p/a.mp4",
+    "/p/a.mp3", "/p/a.tar.gz", "/p/a.ZIP", "/p/a.docx", "/p/a.so", "/p/a.ttf", "/p/a.sqlite", "/p/a.heic"]) {
+    assert.equal(PreviewKind.isTextCandidate(path), false, path)
+  }
+})
+
 test("treats a leading dot as a hidden name, not an extension", () => {
   assert.equal(PreviewKind.extension("/home/test/.png"), "")
   assert.equal(PreviewKind.kind("/home/test/.png"), "file")

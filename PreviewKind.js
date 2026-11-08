@@ -81,6 +81,30 @@ function hasThumbnail(kindName) {
   return kindName === "document" || kindName === "video"
 }
 
+// Extensions that are never text. Selecting one skips the text preview's
+// subprocess entirely. This only saves work: for every other "file" the
+// subprocess itself decides whether the content is text (see TextPreview.js),
+// so a missing entry here costs one quick refusal, never a wrong preview.
+// A plain literal like the tables above: a top-level `new RegExp(...)` built
+// from a joined list failed with "Type error" when this script was first
+// evaluated inside a Repeater delegate (Qt 6.12).
+var binaryTypes = {
+  mp3: 1, flac: 1, ogg: 1, oga: 1, opus: 1, wav: 1, m4a: 1, aac: 1, wma: 1, mid: 1, midi: 1,
+  zip: 1, tar: 1, gz: 1, tgz: 1, bz2: 1, xz: 1, zst: 1, "7z": 1, rar: 1, lz4: 1, lzma: 1,
+  deb: 1, rpm: 1, iso: 1, img: 1, dmg: 1, jar: 1, apk: 1, whl: 1, cab: 1, msi: 1,
+  doc: 1, docx: 1, xls: 1, xlsx: 1, ppt: 1, pptx: 1, odt: 1, ods: 1, odp: 1, epub: 1,
+  exe: 1, dll: 1, so: 1, o: 1, a: 1, bin: 1, elf: 1, "class": 1, pyc: 1, wasm: 1,
+  ttf: 1, otf: 1, woff: 1, woff2: 1, avif: 1, heic: 1, heif: 1, jxl: 1, jp2: 1, tga: 1,
+  psd: 1, raw: 1, cr2: 1, nef: 1, xcf: 1, kra: 1, blend: 1, sqlite: 1, sqlite3: 1, db: 1,
+  kdbx: 1, gpg: 1
+}
+
+// Files whose first screenful may be shown as text: anything the other kinds
+// do not claim, except well-known binary formats.
+function isTextCandidate(path) {
+  return String(path || "") !== "" && kind(path) === "file" && !has(binaryTypes, extension(path))
+}
+
 // Short human label for the caption: "PNG image", "Folder", "PDF document".
 function typeLabel(path) {
   var k = kind(path)
@@ -164,7 +188,7 @@ function thumbnailNames(absolutePath, md5) {
 if (typeof module !== "undefined") {
   module.exports = {
     isFolder: isFolder, baseName: baseName, extension: extension, kind: kind,
-    isDecodable: isDecodable, hasThumbnail: hasThumbnail, typeLabel: typeLabel,
+    isDecodable: isDecodable, hasThumbnail: hasThumbnail, isTextCandidate: isTextCandidate, typeLabel: typeLabel,
     glyph: glyph, displayName: displayName, fileUrl: fileUrl, glibFileUri: glibFileUri,
     thumbnailSizes: thumbnailSizes, thumbnailNames: thumbnailNames
   }
