@@ -11,6 +11,7 @@ import "OpenCommand.js" as OpenCommand
 import "PreviewKind.js" as PreviewKind
 import "TextPreview.js" as TextPreview
 import "AnsiText.js" as AnsiText
+import "Clipboard.js" as Clipboard
 
 Item {
   id: root
@@ -85,6 +86,12 @@ Item {
   // The theme's 16 terminal colors in ANSI order, read on every open.
   property var terminalColors: []
   readonly property int maxPaletteBytes: 16384
+  // A field holds at most this many characters, typed or pasted. Pastes are
+  // read by pasteProc (Clipboard.js), never by Qt's unbounded clipboard read.
+  readonly property int maxQueryChars: 1024
+  readonly property int maxPasteBytes: 4096
+  readonly property int pasteTimeout: 2000
+  property int pasteGen: 0
 
   onSelectedIndexChanged: root.schedulePreview()
   onActiveIndexChanged: root.schedulePreview()
@@ -127,6 +134,7 @@ Item {
 
   function close() {
     root.opened = false
+    root.cancelPaste()
     root.resetSearch(true)
   }
 
@@ -371,6 +379,37 @@ Item {
     root.textPreviewDone = true
   }
 
+  // Pastes into field `index` through the bounded pasteProc. The native
+  // TextInput paste paths are swallowed in the field (see Clipboard.js).
+  function requestPaste(index, primary) {
+    var plan = Clipboard.pasteCommand(primary, root.maxPasteBytes)
+    // Invalidate first: a killed paste reports its exit late (see
+    // textPreviewProc), and its output must fail the generation check.
+    root.pasteGen++
+    pasteWatchdog.stop()
+    if (pasteProc.running) pasteProc.running = false
+    pasteProc.field = index
+    pasteProc.exec(plan.command)
+    pasteProc.pendingGen = root.pasteGen
+    pasteWatchdog.restart()
+  }
+
+  function finishPaste(gen, exitCode, raw) {
+    if (gen !== root.pasteGen) return
+    pasteWatchdog.stop()
+    if (exitCode !== 0 || !root.opened) return
+    var field = fieldsRepeater.itemAt(pasteProc.field)
+    if (!field) return
+    var text = Clipboard.sanitize(raw, root.maxQueryChars)
+    if (text !== "") field.insertText(text)
+  }
+
+  function cancelPaste() {
+    root.pasteGen++
+    pasteWatchdog.stop()
+    if (pasteProc.running) pasteProc.running = false
+  }
+
   function completeDirectory() {
     var field = fieldsRepeater.itemAt(0)
     if (!field || completionProc.running) return
@@ -523,6 +562,29 @@ Item {
     onTriggered: root.abandonTextPreview()
   }
 
+  // Bounded paste (Clipboard.js). The generation is stamped on start for the
+  // same late-exit reason as textPreviewProc.
+  Process {
+    id: pasteProc
+    property int pendingGen: 0
+    property int startedGen: 0
+    property int field: 0
+    onStarted: startedGen = pendingGen
+    stdout: StdioCollector {
+      id: pasteStdout
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      root.finishPaste(pasteProc.startedGen, exitCode, pasteStdout.text)
+    }
+  }
+
+  Timer {
+    id: pasteWatchdog
+    interval: root.pasteTimeout
+    onTriggered: root.cancelPaste()
+  }
+
   Process {
     id: paletteProc
     command: TextPreview.paletteCommand(root.maxPaletteBytes).command
@@ -594,8 +656,12 @@ Item {
               function focusInput() { input.forceActiveFocus() }
               function completeText(value) {
                 input.text = value
-                input.cursorPosition = value.length
+                input.cursorPosition = input.text.length
                 input.forceActiveFocus()
+              }
+              function insertText(value) {
+                if (input.selectedText !== "") input.remove(input.selectionStart, input.selectionEnd)
+                input.insert(input.cursorPosition, value)
               }
 
               visible: root.activeIndex === -1 || root.activeIndex === index
@@ -633,13 +699,19 @@ Item {
                 font.pixelSize: Style.font.title
                 clip: true
                 cursorVisible: activeFocus
+                maximumLength: root.maxQueryChars
 
                 onTextChanged: root.onQueryChanged(fieldRow.index, text)
                 onActiveFocusChanged: if (activeFocus) root.onFieldFocused(fieldRow.index)
 
                 Keys.onPressed: function(event) {
                   var control = (event.modifiers & Qt.ControlModifier) !== 0
-                  if (event.key === Qt.Key_Escape) {
+                  // TextInput's own paste reads the clipboard unbounded on
+                  // the GUI thread; paste through pasteProc instead.
+                  if (event.matches(StandardKey.Paste)) {
+                    root.requestPaste(fieldRow.index, false)
+                    event.accepted = true
+                  } else if (event.key === Qt.Key_Escape) {
                     if (input.text !== "") input.text = ""
                     else root.dismiss()
                     event.accepted = true
@@ -675,6 +747,18 @@ Item {
                   font.pixelSize: Style.font.title
                   verticalAlignment: Text.AlignVCenter
                   elide: Text.ElideRight
+                }
+
+                // TextInput pastes the primary selection on a middle click
+                // with the same unbounded read. Take the middle button
+                // before it does and paste through pasteProc.
+                MouseArea {
+                  anchors.fill: parent
+                  acceptedButtons: Qt.MiddleButton
+                  onClicked: {
+                    input.forceActiveFocus()
+                    root.requestPaste(fieldRow.index, true)
+                  }
                 }
               }
             }

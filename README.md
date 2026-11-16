@@ -148,6 +148,12 @@ inherited file descriptor (fzf ≥ 0.47). On older fzf that option comes through
 own user. The saved folder scope is written to the state file over standard
 input as well. Nothing you type is ever passed as a command line argument.
 
+Pasting (`Ctrl+V`, `Shift+Insert`, middle click) never uses Qt's clipboard
+read. On Wayland that read runs on the shell's GUI thread until the clipboard
+owner closes its pipe, with no size cap. Instead, `wl-paste` runs in a subprocess
+with a 1 s deadline and `head -c 4096`, and only the first line is inserted.
+A search field holds at most 1024 characters.
+
 ## Development
 
 The plugin uses the standard third-party overlay lifecycle: Omarchy injects the
